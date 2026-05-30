@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Horas Extra — Registro Mensual</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+  :root {
+    --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a; --border:#2e3347;
+    --accent:#4f8ef7; --accent2:#7c6df7; --green:#34d399; --yellow:#fbbf24;
+    --red:#f87171; --text:#e8eaf0; --muted:#6b7280; --radius:14px; --radius-sm:8px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:15px;}
+
+  .app-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+  .app-logo{font-size:17px;font-weight:700;letter-spacing:-.3px;display:flex;align-items:center;gap:8px;}
+  .app-logo span{width:28px;height:28px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;}
+  .view-toggle{display:flex;background:var(--surface2);border-radius:10px;padding:3px;gap:2px;}
+  .view-toggle button{padding:6px 14px;border:none;background:transparent;color:var(--muted);border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;transition:all .2s;}
+  .view-toggle button.active{background:var(--accent);color:#fff;}
+
+  .month-banner{background:linear-gradient(135deg,#1e2a4a 0%,#1a1d27 100%);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;}
+  .month-info h2{font-size:20px;font-weight:700;letter-spacing:-.5px;}
+  .month-info p{font-size:12px;color:var(--muted);margin-top:2px;}
+  .month-stats{display:flex;gap:20px;}
+  .stat-pill{text-align:right;}
+  .stat-pill .val{font-family:'DM Mono',monospace;font-size:18px;font-weight:500;color:var(--accent);}
+  .stat-pill .lbl{font-size:11px;color:var(--muted);}
+
+  .view{display:none;} .view.active{display:block;}
+
+  .section{padding:18px 20px;max-width:520px;margin:0 auto;}
+  .section-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:12px;}
+  .form-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
+  .form-grid{display:grid;gap:14px;}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field label{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-bottom:6px;letter-spacing:.3px;}
+  .field input,.field select,.field textarea{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 13px;color:var(--text);font-family:inherit;font-size:15px;outline:none;transition:border-color .2s;-webkit-appearance:none;}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);}
+  .field select option{background:#1a1d27;}
+  .duration-box{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 13px;display:flex;align-items:center;justify-content:space-between;}
+  .duration-box .hours{font-family:'DM Mono',monospace;font-size:18px;font-weight:500;color:var(--accent);}
+  .duration-box .hint{font-size:11px;color:var(--muted);}
+  .btn-save{width:100%;padding:15px;background:var(--accent);border:none;border-radius:var(--radius-sm);color:#fff;font-family:inherit;font-size:16px;font-weight:600;cursor:pointer;transition:opacity .2s,transform .1s;margin-top:4px;}
+  .btn-save:hover{opacity:.9;} .btn-save:active{transform:scale(.98);}
+
+  .history-list{display:flex;flex-direction:column;gap:10px;}
+  .entry-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;gap:14px;}
+  .entry-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+  .entry-info{flex:1;min-width:0;}
+  .entry-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .entry-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+  .entry-right{text-align:right;flex-shrink:0;}
+  .entry-hours{font-family:'DM Mono',monospace;font-size:16px;font-weight:500;color:var(--accent);}
+  .entry-status{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;margin-top:4px;text-transform:uppercase;letter-spacing:.5px;}
+  .status-pending{background:rgba(251,191,36,.15);color:var(--yellow);}
+  .status-approved{background:rgba(52,211,153,.15);color:var(--green);}
+  .status-rejected{background:rgba(248,113,113,.15);color:var(--red);}
+  .status-paid{background:rgba(79,142,247,.15);color:var(--accent);}
+
+  .admin-section{padding:18px 20px;max-width:960px;margin:0 auto;}
+  .filters-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;}
+  .filters-row select,.filters-row input{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;flex:1;min-width:140px;-webkit-appearance:none;}
+  .summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px;}
+  .summary-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;}
+  .summary-card .sc-val{font-family:'DM Mono',monospace;font-size:22px;font-weight:500;color:var(--accent);}
+  .summary-card .sc-lbl{font-size:12px;color:var(--muted);margin-top:4px;}
+  .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+  .table-header{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);}
+  .table-header h3{font-size:14px;font-weight:600;}
+  .btn-export{padding:8px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:border-color .2s;}
+  .btn-export:hover{border-color:var(--accent);color:var(--accent);}
+  .data-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .data-table th{padding:10px 14px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;}
+  .data-table td{padding:12px 14px;border-bottom:1px solid rgba(46,51,71,.5);vertical-align:middle;}
+  .data-table tr:last-child td{border-bottom:none;}
+  .data-table tr:hover td{background:rgba(255,255,255,.02);}
+  .td-worker{font-weight:600;}
+  .td-hours{font-family:'DM Mono',monospace;font-weight:500;color:var(--accent);}
+  .td-comment{max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);}
+  .action-btns{display:flex;gap:6px;}
+  .btn-action{padding:5px 10px;border:none;border-radius:6px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:opacity .2s;}
+  .btn-action:hover{opacity:.8;}
+  .btn-approve{background:rgba(52,211,153,.2);color:var(--green);}
+  .btn-reject{background:rgba(248,113,113,.2);color:var(--red);}
+  .btn-pay{background:rgba(79,142,247,.2);color:var(--accent);}
+
+  .close-month-bar{background:linear-gradient(90deg,rgba(79,142,247,.1),rgba(124,109,247,.1));border:1px solid rgba(79,142,247,.3);border-radius:var(--radius);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px;}
+  .close-month-bar p{font-size:14px;}
+  .close-month-bar p span{color:var(--accent);font-weight:600;}
+  .btn-close-month{padding:10px 20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:var(--radius-sm);color:#fff;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;}
+
+  /* Formula info box */
+  .formula-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:18px;font-size:13px;line-height:1.7;color:var(--muted);}
+  .formula-box strong{color:var(--text);}
+  .formula-box .formula-val{color:var(--accent);font-family:'DM Mono',monospace;font-weight:500;}
+
+  /* Worker detail badge */
+  .worker-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);background:var(--surface2);border-radius:6px;padding:3px 8px;margin-top:4px;}
+
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:flex-end;justify-content:center;}
+  .modal-overlay.open{display:flex;}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;padding:24px 20px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;}
+  .modal h3{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;}
+  .modal-close{background:var(--surface2);border:none;width:28px;height:28px;border-radius:50%;color:var(--muted);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;}
+  .modal pre{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;font-family:'DM Mono',monospace;font-size:12px;line-height:1.7;white-space:pre-wrap;color:var(--text);}
+  .btn-copy-email{width:100%;margin-top:14px;padding:13px;background:var(--accent);border:none;border-radius:var(--radius-sm);color:#fff;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;}
+  .empty{text-align:center;padding:40px 20px;color:var(--muted);font-size:14px;}
+  .empty .icon{font-size:36px;margin-bottom:10px;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--surface);border:1px solid var(--green);color:var(--green);padding:10px 20px;border-radius:30px;font-size:14px;font-weight:500;z-index:999;transition:transform .3s ease;white-space:nowrap;}
+  .toast.show{transform:translateX(-50%) translateY(0);}
+  .config-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+  .config-item{flex:1;min-width:160px;}
+  /* Resumen contador */
+  .resumen-wrap { font-size:13px; }
+  .resumen-wrap h4 { font-size:13px; font-weight:700; color:var(--text); margin:16px 0 8px; }
+  .resumen-table { width:100%; border-collapse:collapse; font-family:"DM Mono",monospace; font-size:12px; }
+  .resumen-table th { padding:7px 10px; text-align:left; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); border-bottom:1px solid var(--border); white-space:nowrap; }
+  .resumen-table th.num { text-align:right; }
+  .resumen-table td { padding:7px 10px; border-bottom:1px solid rgba(46,51,71,.4); color:var(--text); white-space:nowrap; }
+  .resumen-table td.num { text-align:right; color:var(--accent); }
+  .resumen-table td.dim { color:var(--muted); }
+  .resumen-table tr:last-child td { border-bottom:none; }
+  .resumen-section { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); padding:10px 10px 4px; background:var(--surface2); }
+  .resumen-total { font-size:13px; font-weight:700; color:var(--accent); padding:12px 10px; border-top:2px solid var(--border); }
+  .resumen-warning { background:rgba(251,191,36,.1); border:1px solid rgba(251,191,36,.3); border-radius:8px; padding:10px 12px; margin-top:14px; font-size:12px; color:var(--yellow); }
+  .resumen-meta { font-size:11px; color:var(--muted); margin-top:12px; }
+  #modalContent pre { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; font-family:"DM Mono",monospace; font-size:11px; line-height:1.6; white-space:pre-wrap; color:var(--text); margin-top:12px; }
+  @media(max-width:480px){
+    .month-stats{display:none;}
+    .form-row{grid-template-columns:1fr;}
+    .data-table{display:block;overflow-x:auto;}
+    .filters-row select,.filters-row input{min-width:100%;}
+    .summary-cards{grid-template-columns:1fr 1fr;}
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-logo"><span>⏱</span>Horas Extra</div>
+  <div class="view-toggle" id="viewToggle">
+    <button class="active" onclick="switchView('jefe')">Jefe</button>
+    <button onclick="switchView('admin')">Admin</button>
+  </div>
+</header>
+
+<div class="month-banner">
+  <div class="month-info">
+    <h2 id="bannerMonth">Cargando...</h2>
+    <p id="bannerLocal">Local: Sin configurar</p>
+  </div>
+  <div class="month-stats">
+    <div class="stat-pill"><div class="val" id="bannerTotal">0,00</div><div class="lbl">hrs este mes</div></div>
+    <div class="stat-pill"><div class="val" id="bannerPending">0</div><div class="lbl">pendientes</div></div>
+  </div>
+</div>
+
+<!-- ═══ VISTA JEFE ═══ -->
+<div id="view-jefe" class="view active">
+  <div class="section">
+    <div class="section-title">Configuración rápida</div>
+    <div class="form-card">
+      <div class="config-row">
+        <div class="config-item field">
+          <label>Mi local</label>
+          <select id="cfgLocal" onchange="saveConfig();filterWorkers()">
+            <option value="">— Seleccionar —</option>
+            <option>Pajaritos</option>
+            <option>Plaza Oeste</option>
+          </select>
+        </div>
+        <div class="config-item field">
+          <label>Registrado por</label>
+          <input type="text" id="cfgJefe" placeholder="Tu nombre" oninput="saveConfig()">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Registrar hora extra</div>
+    <div class="form-card">
+      <div class="form-grid">
+        <div class="form-row">
+          <div class="field">
+            <label>Fecha</label>
+            <input type="date" id="fFecha">
+          </div>
+          <div class="field">
+            <label>Trabajador</label>
+            <select id="fTrabajador" onchange="showWorkerInfo()">
+              <option value="">— Seleccionar local primero —</option>
+            </select>
+          </div>
+        </div>
+        <div id="workerInfoBox" style="display:none;">
+          <div class="duration-box" style="justify-content:flex-start;gap:16px;">
+            <div><div style="font-size:11px;color:var(--muted);">Jornada pactada</div><div class="hours" id="wiJornada">—</div></div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>Desde</label>
+            <input type="time" id="fDesde" oninput="calcDuration()">
+          </div>
+          <div class="field">
+            <label>Hasta</label>
+            <input type="time" id="fHasta" oninput="calcDuration()">
+          </div>
+        </div>
+        <div class="field">
+          <label>Duración calculada</label>
+          <div class="duration-box">
+            <span class="hours" id="durationDisplay">— hrs</span>
+            <span class="hint" id="durationHint">ingresa horario</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>Comentario / Motivo</label>
+          <textarea id="fComentario" rows="2" placeholder="Ej: Cierre de caja, evento especial, cobertura turno..."></textarea>
+        </div>
+        <button class="btn-save" onclick="saveEntry()">Guardar hora extra</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Historial del mes — <span id="historialCount">0 registros</span></div>
+    <div class="history-list" id="historialList">
+      <div class="empty"><div class="icon">📋</div>Sin registros este mes.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ VISTA ADMIN ═══ -->
+<div id="view-admin" class="view">
+  <div class="admin-section">
+
+    <!-- RESUMEN RÁPIDO -->
+    <div class="summary-cards" id="summaryCards" style="margin-bottom:14px;"></div>
+
+    <!-- FILTROS -->
+    <div class="filters-row">
+      <select id="aFiltroLocal" onchange="renderAdmin()">
+        <option value="">Todos los locales</option>
+        <option>Pajaritos</option>
+        <option>Plaza Oeste</option>
+      </select>
+      <select id="aFiltroTrabajador" onchange="renderAdmin()">
+        <option value="">Todos los trabajadores</option>
+      </select>
+      <select id="aFiltroEstado" onchange="renderAdmin()">
+        <option value="">Todos los estados</option>
+        <option value="pending">⏳ Pendiente</option>
+        <option value="approved">✓ Aprobado</option>
+        <option value="rejected">✕ Rechazado</option>
+        <option value="paid">💵 Pagado</option>
+      </select>
+    </div>
+
+    <!-- CARDS DE REGISTROS (mobile-first) -->
+    <div id="adminCards" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;"></div>
+
+    <!-- CIERRE MES -->
+    <div class="close-month-bar">
+      <p>Mes: <span id="closeBannerMonth">—</span></p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-export" onclick="exportCSV()">⬇ CSV</button>
+        <button class="btn-close-month" onclick="openCloseModal()">📧 Resumen contador</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL RESUMEN -->
+<div class="modal-overlay" id="modalResumen">
+  <div class="modal">
+    <h3>Resumen para contador <button class="modal-close" onclick="closeModal()">✕</button></h3>
+    <div id="modalContent"></div>
+    <button class="btn-copy-email" onclick="copyResumen()">📋 Copiar texto para correo</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// DATOS REALES DESDE AIRTABLE (Empleados activos)
+// Fórmula: (sueldoBase * 1.25) / (jornadaSemanal * 4.33) * 1.5
+// ══════════════════════════════════════════════════════════════════════════════
+const WORKERS = {
+  "Katalina del Pilar Ibanez Orellana": { local:"Pajaritos",  rut:"22372678-k", sueldo:539000, jornada:42 },
+  "Antonia Paz Campusano Aguilera":     { local:"Pajaritos",  rut:"21141140-6", sueldo:320833, jornada:25 },
+  "Viviana Esperanza Ancacoy Roman":    { local:"Pajaritos",  rut:"20.721.746-8", sueldo:385000, jornada:30 },
+  "Roberto Paolo Luzanto Sanhueza":     { local:"Pajaritos",  rut:"19828968-k", sueldo:539000, jornada:42 },
+  "Victoria Esperanza Carrera Tenorio": { local:"Plaza Oeste",rut:"21305281-0", sueldo:539000, jornada:42 },
+  "Hans Mandujano":                     { local:"Plaza Oeste",rut:"15566825-3", sueldo:0,      jornada:30 },
+  "Javiera Yanara Espinoza Alegria":    { local:"Plaza Oeste",rut:"19846015-k", sueldo:558000, jornada:42 },
+  "Neyrut Linyut Rincón Urdaneta":      { local:"Plaza Oeste",rut:"44444491-6", sueldo:539000, jornada:42 },
+  "Michelle Isabel Cuevas Serrano":     { local:"Plaza Oeste",rut:"19919257-4", sueldo:385000, jornada:30 },
+  "Gonzalo Ignacio Heríquez Aguirre":   { local:"Plaza Oeste",rut:"18594079-9", sueldo:999232, jornada:42 },
+};
+
+const WORKERS_BY_LOCAL = {
+  "Pajaritos":   Object.keys(WORKERS).filter(n=>WORKERS[n].local==="Pajaritos"),
+  "Plaza Oeste": Object.keys(WORKERS).filter(n=>WORKERS[n].local==="Plaza Oeste"),
+};
+const ALL_WORKERS = Object.keys(WORKERS).sort();
+
+function valorHoraPor(nombre) {
+  const w = WORKERS[nombre];
+  if (!w || !w.sueldo || !w.jornada) return null;
+  return (w.sueldo * 1.25) / (w.jornada * 4.33) * 1.5;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+const MONTHS_ES  = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const STATUS_LABEL = { pending:'Pendiente', approved:'Aprobado', rejected:'Rechazado', paid:'Pagado' };
+const STATUS_CLASS = { pending:'status-pending', approved:'status-approved', rejected:'status-rejected', paid:'status-paid' };
+const DOT_COLOR   = { pending:'#fbbf24', approved:'#34d399', rejected:'#f87171', paid:'#4f8ef7' };
+
+let entries = JSON.parse(localStorage.getItem('hx_entries') || '[]');
+let config  = JSON.parse(localStorage.getItem('hx_config')  || '{"local":"","jefe":""}');
+
+const uid    = () => Date.now().toString(36)+Math.random().toString(36).slice(2);
+const save   = () => localStorage.setItem('hx_entries', JSON.stringify(entries));
+const today  = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const fmtH   = h => h.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtD   = d => { const [,m,dd]=d.split('-'); return `${dd}/${m}`; };
+const fmtCLP = n => '$'+Math.round(n).toLocaleString('es-CL');
+const shortName = n => n.split(' ').slice(0,2).join(' ');
+const mlabel = k => { const [y,m]=k.split('-'); return `${MONTHS_ES[parseInt(m)-1]} ${y}`; };
+
+// ── PERÍODOS (corte día 26) ───────────────────────────────────────────────────
+// Un período va del día 27 de un mes al día 26 del mes siguiente.
+// Se identifica por la fecha de su día 26 de cierre: "YYYY-MM" del mes al que pertenece.
+function getPeriodKey(dateStr) {
+  // Dado "YYYY-MM-DD", devuelve la clave del período al que pertenece.
+  // Si día > 26 → pertenece al período del mes SIGUIENTE
+  // Si día <= 26 → pertenece al período del mes actual
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (d > 26) {
+    // mes siguiente
+    const next = new Date(y, m, 1); // m es base-0 en Date, pero aquí m ya es 1-12 así que m sin -1 da el mes siguiente
+    return `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}`;
+  }
+  return `${y}-${String(m).padStart(2,'0')}`;
+}
+
+function curPeriodKey() {
+  return getPeriodKey(today());
+}
+
+function periodLabel(pk) {
+  // "Período: 27 Abr – 26 May 2026"
+  const [y, m] = pk.split('-').map(Number);
+  const prev = new Date(y, m-1, 0); // último día del mes anterior
+  const prevM = MONTHS_ES[prev.getMonth()];
+  const curM  = MONTHS_ES[m-1];
+  return `27 ${prevM} – 26 ${curM} ${y}`;
+}
+
+function periodShortLabel(pk) {
+  const [y, m] = pk.split('-').map(Number);
+  return `${MONTHS_ES[m-1]} ${y}`;
+}
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  const vista  = params.get('vista'); // 'jefe' | 'admin' | null
+
+  // Modo jefe: ocultar boton Admin completamente
+  if (vista === 'jefe') {
+    document.getElementById('viewToggle').style.display = 'none';
+    switchView('jefe');
+  }
+  // Modo admin: arrancar directo en Admin
+  else if (vista === 'admin') {
+    switchView('admin');
+  }
+  // Sin parametro: ambas vistas disponibles (uso interno)
+
+  document.getElementById('fFecha').value = today();
+  document.getElementById('cfgLocal').value = config.local || '';
+  document.getElementById('cfgJefe').value  = config.jefe  || '';
+  filterWorkers();
+  populateAdminFilter();
+  updateBanner();
+  renderHistorial();
+  renderAdmin();
+});
+
+function saveConfig() {
+  config.local = document.getElementById('cfgLocal').value;
+  config.jefe  = document.getElementById('cfgJefe').value;
+  localStorage.setItem('hx_config', JSON.stringify(config));
+  updateBanner();
+}
+
+function filterWorkers() {
+  const local = document.getElementById('cfgLocal').value;
+  const sel   = document.getElementById('fTrabajador');
+  const list  = local && WORKERS_BY_LOCAL[local] ? WORKERS_BY_LOCAL[local] : ALL_WORKERS;
+  sel.innerHTML = '<option value="">— Seleccionar —</option>' +
+    list.map(w=>`<option>${w}</option>`).join('');
+  document.getElementById('workerInfoBox').style.display = 'none';
+}
+
+function showWorkerInfo() {
+  const nombre = document.getElementById('fTrabajador').value;
+  const box    = document.getElementById('workerInfoBox');
+  if (!nombre || !WORKERS[nombre]) { box.style.display='none'; return; }
+  const w  = WORKERS[nombre];
+  const vh = valorHoraPor(nombre);
+  document.getElementById('wiJornada').textContent   = w.jornada + ' hrs/sem';
+  document.getElementById('wiValorHora').textContent = vh ? fmtCLP(vh)+'/hr' : 'Sin sueldo';
+  box.style.display = 'block';
+  calcDuration();
+}
+
+function populateAdminFilter() {
+  const sel = document.getElementById('aFiltroTrabajador');
+  sel.innerHTML = '<option value="">Todos los trabajadores</option>' +
+    ALL_WORKERS.map(w=>`<option>${w}</option>`).join('');
+}
+
+// ── BANNER ────────────────────────────────────────────────────────────────────
+function updateBanner() {
+  const mk = curPeriodKey();
+  document.getElementById('bannerMonth').textContent      = periodShortLabel(mk);
+  document.getElementById('bannerLocal').textContent      = (config.local ? `${config.local} · ` : '') + periodLabel(mk);
+  document.getElementById('closeBannerMonth').textContent = periodShortLabel(mk);
+  const thisMonth = entries.filter(e=>getPeriodKey(e.fecha)===mk);
+  document.getElementById('bannerTotal').textContent   = fmtH(thisMonth.reduce((s,e)=>s+e.horas,0));
+  document.getElementById('bannerPending').textContent = thisMonth.filter(e=>e.estado==='pending').length;
+}
+
+// ── CALC ──────────────────────────────────────────────────────────────────────
+function calcDuration() {
+  const desde=document.getElementById('fDesde').value, hasta=document.getElementById('fHasta').value;
+  const disp=document.getElementById('durationDisplay'), hint=document.getElementById('durationHint');
+  if (!desde||!hasta) return;
+  const [dh,dm]=desde.split(':').map(Number),[hh,hm]=hasta.split(':').map(Number);
+  const mins=(hh*60+hm)-(dh*60+dm);
+  if (mins<=0) { disp.textContent='— Error'; hint.textContent='⚠ hasta < desde'; disp.style.color='var(--red)'; return; }
+  disp.style.color='var(--accent)';
+  const hrs=mins/60;
+  const nombre=document.getElementById('fTrabajador').value;
+  const vh=valorHoraPor(nombre);
+  disp.textContent=fmtH(hrs)+' hrs';
+  hint.textContent=`${Math.floor(hrs)}h ${mins%60}min`;
+}
+
+// ── GUARDAR ───────────────────────────────────────────────────────────────────
+function saveEntry() {
+  const fecha=document.getElementById('fFecha').value,
+        trabajador=document.getElementById('fTrabajador').value,
+        desde=document.getElementById('fDesde').value,
+        hasta=document.getElementById('fHasta').value,
+        comentario=document.getElementById('fComentario').value.trim(),
+        local=config.local||'Sin local',
+        jefe=config.jefe||'Jefe';
+  if (!fecha||!trabajador||!desde||!hasta) { showToast('⚠ Completa todos los campos',true); return; }
+  const [dh,dm]=desde.split(':').map(Number),[hh,hm]=hasta.split(':').map(Number);
+  const mins=(hh*60+hm)-(dh*60+dm);
+  if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); return; }
+  const vh = valorHoraPor(trabajador);
+  entries.unshift({ id:uid(), fecha, local, trabajador, desde, hasta, horas:mins/60, valorHora:vh||0, comentario, estado:'pending', jefe, creado:new Date().toISOString() });
+  save(); updateBanner(); renderHistorial();
+  ['fTrabajador','fDesde','fHasta','fComentario'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('durationDisplay').textContent='— hrs';
+  document.getElementById('durationHint').textContent='ingresa horario';
+  document.getElementById('workerInfoBox').style.display='none';
+  showToast('✓ Hora extra registrada');
+}
+
+// ── HISTORIAL ─────────────────────────────────────────────────────────────────
+function renderHistorial() {
+  const mk=curPeriodKey(), list=entries.filter(e=>getPeriodKey(e.fecha)===mk);
+  document.getElementById('historialCount').textContent=`${list.length} registros`;
+  const el=document.getElementById('historialList');
+  if (!list.length) { el.innerHTML='<div class="empty"><div class="icon">📋</div>Sin registros este mes.</div>'; return; }
+  el.innerHTML=list.map(e=>`
+    <div class="entry-card">
+      <div class="entry-dot" style="background:${DOT_COLOR[e.estado]}"></div>
+      <div class="entry-info">
+        <div class="entry-name">${shortName(e.trabajador)}</div>
+        <div class="entry-meta">${fmtD(e.fecha)} · ${e.desde}–${e.hasta}${e.comentario?' · '+e.comentario:''}</div>
+      </div>
+      <div class="entry-right">
+        <div class="entry-hours">${fmtH(e.horas)}</div>
+        <span class="entry-status ${STATUS_CLASS[e.estado]}">${STATUS_LABEL[e.estado]}</span>
+      </div>
+    </div>`).join('');
+}
+
+// ── ADMIN ─────────────────────────────────────────────────────────────────────
+function renderAdmin() {
+  const mk=curPeriodKey();
+  const fL=document.getElementById('aFiltroLocal').value;
+  const fT=document.getElementById('aFiltroTrabajador').value;
+  const fE=document.getElementById('aFiltroEstado').value;
+  let list=entries.filter(e=>getPeriodKey(e.fecha)===mk);
+  if (fL) list=list.filter(e=>e.local===fL);
+  if (fT) list=list.filter(e=>e.trabajador===fT);
+  if (fE) list=list.filter(e=>e.estado===fE);
+
+  const totalHrs   = list.reduce((s,e)=>s+e.horas,0);
+  const aprobHrs   = list.filter(e=>e.estado==='approved').reduce((s,e)=>s+e.horas,0);
+  const aprobMonto = list.filter(e=>e.estado==='approved').reduce((s,e)=>s+(e.horas*(e.valorHora||0)),0);
+  const pendientes = list.filter(e=>e.estado==='pending').length;
+
+  document.getElementById('summaryCards').innerHTML=`
+    <div class="summary-card"><div class="sc-val">${fmtH(totalHrs)}</div><div class="sc-lbl">Total horas</div></div>
+    <div class="summary-card"><div class="sc-val">${fmtH(aprobHrs)}</div><div class="sc-lbl">Aprobadas</div></div>
+    <div class="summary-card"><div class="sc-val">${fmtCLP(aprobMonto)}</div><div class="sc-lbl">Monto aprobado</div></div>
+    <div class="summary-card"><div class="sc-val" style="color:var(--yellow)">${pendientes}</div><div class="sc-lbl">Pendientes</div></div>`;
+
+  const container = document.getElementById('adminCards');
+  if (!list.length) {
+    container.innerHTML='<div class="empty"><div class="icon">✅</div>Sin registros pendientes.</div>';
+    return;
+  }
+
+  // Pendientes primero, luego el resto
+  const sorted = [...list].sort((a,b) => {
+    const order = {pending:0,approved:1,paid:2,rejected:3};
+    return (order[a.estado]??9)-(order[b.estado]??9);
+  });
+
+  container.innerHTML = sorted.map(e => {
+    const monto = e.valorHora ? fmtCLP(e.horas * e.valorHora) : '—';
+    const isPending  = e.estado==='pending';
+    const isApproved = e.estado==='approved';
+    return `
+    <div style="background:var(--surface);border:1px solid ${isPending?'rgba(251,191,36,.4)':isApproved?'rgba(52,211,153,.25)':'var(--border)'};border-radius:var(--radius);padding:16px;transition:border-color .2s;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;">
+        <div>
+          <div style="font-weight:700;font-size:15px;">${shortName(e.trabajador)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${e.local} · ${e.fecha} · ${e.desde}–${e.hasta}</div>
+          ${e.comentario?`<div style="font-size:12px;color:var(--muted);margin-top:3px;">💬 ${e.comentario}</div>`:''}
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:600;color:var(--accent);">${fmtH(e.horas)}</div>
+          <div style="font-size:11px;color:var(--muted);">hrs · ${monto}</div>
+          <span class="entry-status ${STATUS_CLASS[e.estado]}" style="margin-top:5px;">${STATUS_LABEL[e.estado]}</span>
+        </div>
+      </div>
+      ${isPending ? `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+        <button onclick="setStatus('${e.id}','approved')" style="padding:12px;background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.4);border-radius:10px;color:var(--green);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;">✓ Aprobar</button>
+        <button onclick="setStatus('${e.id}','rejected')" style="padding:12px;background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.4);border-radius:10px;color:var(--red);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;">✕ Rechazar</button>
+      </div>` : ''}
+      ${isApproved ? `
+      <button onclick="setStatus('${e.id}','paid')" style="width:100%;padding:11px;background:rgba(79,142,247,.15);border:1px solid rgba(79,142,247,.4);border-radius:10px;color:var(--accent);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;">💵 Marcar como pagado</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function setStatus(id,s) {
+  const i=entries.findIndex(e=>e.id===id); if (i<0) return;
+  entries[i].estado=s; save(); updateBanner(); renderAdmin(); renderHistorial();
+  showToast({approved:'Aprobado ✓',rejected:'Rechazado',paid:'Marcado como pagado 💵'}[s]);
+}
+
+// ── CSV ───────────────────────────────────────────────────────────────────────
+function exportCSV() {
+  const mk=curPeriodKey(), list=entries.filter(e=>getPeriodKey(e.fecha)===mk);
+  if (!list.length) { showToast('Sin datos para exportar',true); return; }
+  const hdr=['Trabajador','Local','Fecha','Desde','Hasta','Horas','Valor Hora','Monto Est.','Comentario','Estado','Registrado por'];
+  const rows=list.map(e=>[e.trabajador,e.local,e.fecha,e.desde,e.hasta,e.horas.toFixed(2),e.valorHora?Math.round(e.valorHora):'',e.valorHora?Math.round(e.horas*e.valorHora):'',e.comentario||'',STATUS_LABEL[e.estado],e.jefe]);
+  const csv=[hdr,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}));
+  a.download=`horas_extra_${mk}.csv`; a.click();
+  showToast('CSV descargado ✓');
+}
+
+// ── RESUMEN ───────────────────────────────────────────────────────────────────
+function openCloseModal() {
+  const mk=curPeriodKey();
+  const aprobadas=entries.filter(e=>getPeriodKey(e.fecha)===mk&&e.estado==='approved');
+  const pendientes=entries.filter(e=>getPeriodKey(e.fecha)===mk&&e.estado==='pending');
+
+  // Agrupar por trabajador
+  const byW={};
+  aprobadas.forEach(e=>{
+    if (!byW[e.trabajador]) byW[e.trabajador]={horas:0,local:e.local};
+    byW[e.trabajador].horas+=e.horas;
+  });
+
+  const locales=['Plaza Oeste','Pajaritos'];
+  let html=`<div class="resumen-wrap">`;
+  html+=`<h4>Horas trabajadas ${periodLabel(mk)}</h4>`;
+
+  if (!Object.keys(byW).length) {
+    html+=`<p style="color:var(--muted);font-size:13px;">Sin horas extra aprobadas este mes.</p>`;
+  } else {
+    html+=`<table class="resumen-table">
+      <thead><tr>
+        <th>Nombre</th><th>RUT</th>
+        <th class="num">Días trab.</th>
+        <th class="num">Licencia</th>
+        <th class="num">Ausencia</th>
+        <th class="num">Hrs extra (150%)</th>
+        <th class="num">Hrs feriado +50%</th>
+      </tr></thead><tbody>`;
+
+    let totalHrs=0;
+    locales.forEach(local=>{
+      const lista=Object.entries(byW).filter(([n])=>WORKERS[n]&&WORKERS[n].local===local);
+      if (!lista.length) return;
+      html+=`<tr><td colspan="7" class="resumen-section">${local}</td></tr>`;
+      lista.forEach(([nombre,d])=>{
+        const w=WORKERS[nombre]||{};
+        const first=nombre.split(' ')[0];
+        totalHrs+=d.horas;
+        html+=`<tr>
+          <td>${first}</td>
+          <td class="dim">${w.rut||'—'}</td>
+          <td class="num dim">${w.jornada===42?30:w.jornada===30?30:25}</td>
+          <td class="num dim"></td>
+          <td class="num dim"></td>
+          <td class="num">${fmtH(d.horas)}</td>
+          <td class="num dim"></td>
+        </tr>`;
+      });
+    });
+
+    html+=`</tbody></table>`;
+    html+=`<div class="resumen-total">Total horas extra: ${fmtH(totalHrs)} hrs</div>`;
+  }
+
+  if (pendientes.length) {
+    html+=`<div class="resumen-warning">⚠ ${pendientes.length} registro(s) aún pendientes de aprobación:<br>`;
+    pendientes.forEach(e=>{
+      html+=`&nbsp;· ${shortName(e.trabajador)} — ${e.fecha} ${e.desde}–${e.hasta} (${fmtH(e.horas)} hrs)<br>`;
+    });
+    html+=`</div>`;
+  }
+
+  // Calcular fechas del período anterior (inicio: 27 del mes previo)
+  const [pky, pkm] = mk.split('-').map(Number);
+  const prevDate = new Date(pky, pkm-1, 0); // último día mes anterior
+  const prevM = MONTHS_ES[prevDate.getMonth()];
+  const curM  = MONTHS_ES[pkm-1];
+  html+=`<div class="resumen-meta">
+    <strong style="color:var(--text)">Período:</strong> 27 ${prevM} – 26 ${curM} ${pky}<br>
+    <span style="color:var(--muted);font-size:11px;">⚠ Las horas del 27 ${curM} en adelante se acumulan para el período siguiente.</span><br><br>
+    Generado: ${new Date().toLocaleString('es-CL')}<br>
+    Favor informar y procesar en liquidaciones del mes.
+  </div>`;
+  html+=`</div>`;
+
+  // También guardar texto plano para copiar
+  html+=`<pre id="resumenPlainText" style="display:none">`;
+  html+=`Horas trabajadas ${periodLabel(mk)}\n\n`;
+  const localesP=['Plaza Oeste','Pajaritos'];
+  localesP.forEach(local=>{
+    const lista=Object.entries(byW).filter(([n])=>WORKERS[n]&&WORKERS[n].local===local);
+    if (!lista.length) return;
+    html+=`${local}\n`;
+    lista.forEach(([nombre,d])=>{
+      const w=WORKERS[nombre]||{};
+      html+=`${nombre.split(' ')[0]}\t${w.rut||''}\t${w.jornada===42?30:30}\t\t\t${fmtH(d.horas)}\n`;
+    });
+    html+=`\n`;
+  });
+  if (pendientes.length) {
+    html+=`\nPENDIENTES (${pendientes.length}):\n`;
+    pendientes.forEach(e=>{ html+=`· ${shortName(e.trabajador)} ${e.fecha} ${fmtH(e.horas)} hrs\n`; });
+  }
+  html+=`</pre>`;
+
+  document.getElementById('modalContent').innerHTML=html;
+  document.getElementById('modalResumen').classList.add('open');
+}
+
+function closeModal() { document.getElementById('modalResumen').classList.remove('open'); }
+function copyResumen() {
+  const plain = document.getElementById('resumenPlainText');
+  const txt = plain ? plain.textContent : document.getElementById('modalContent').innerText;
+  navigator.clipboard.writeText(txt)
+    .then(()=>showToast('Copiado ✓'))
+    .catch(()=>showToast('Error al copiar',true));
+}
+
+function switchView(v) {
+  document.getElementById('view-jefe').classList.toggle('active',v==='jefe');
+  document.getElementById('view-admin').classList.toggle('active',v==='admin');
+  document.querySelectorAll('.view-toggle button').forEach((b,i)=>b.classList.toggle('active',(i===0&&v==='jefe')||(i===1&&v==='admin')));
+  if (v==='admin') renderAdmin();
+}
+
+function showToast(msg,err=false) {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.style.borderColor=err?'var(--red)':'var(--green)'; t.style.color=err?'var(--red)':'var(--green)';
+  t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800);
+}
+document.getElementById('modalResumen').addEventListener('click',function(e){if(e.target===this)closeModal();});
+</script>
+</body>
+</html>
