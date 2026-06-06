@@ -430,14 +430,18 @@ async function atCreateEntry(entry) {
 
 // ── Actualizar estado ─────────────────────────────────────────────────────────
 async function atUpdateStatus(atId, estado) {
-  if (!atId || !await atEnsureTable()) return;
+  if (!atId || !await atEnsureTable()) return false;
   try {
-    await fetch(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`, {
+    const r = await fetch(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`, {
       method: 'PATCH',
       headers: AT_HEADERS,
       body: JSON.stringify({ records: [{ id: atId, fields: { 'Estado': estadoToLabel(estado) } }] })
     });
-  } catch(e) { console.error('atUpdate error', e); }
+    const data = await r.json();
+    if (data.records?.[0]) return true;
+    console.error('atUpdateStatus error:', data);
+    return false;
+  } catch(e) { console.error('atUpdate error', e); return false; }
 }
 
 function entryToAtFields(e) {
@@ -720,8 +724,12 @@ function renderAdmin() {
 function setStatus(id,s) {
   const i=entries.findIndex(e=>e.id===id); if (i<0) return;
   entries[i].estado=s; save(); updateBanner(); renderAdmin(); renderHistorial();
-  atUpdateStatus(entries[i].atId || id, s);
-  showToast({approved:'Aprobado ✓',rejected:'Rechazado',paid:'Marcado como pagado 💵'}[s]);
+  // Usar atId si existe, sino el id directo (que puede ser el record ID de Airtable)
+  const atId = entries[i].atId || entries[i].id;
+  atUpdateStatus(atId, s).then(ok => {
+    if (ok) showToast({approved:'Aprobado ✓',rejected:'Rechazado',paid:'Marcado como pagado 💵'}[s]);
+    else showToast('⚠ No se pudo sincronizar estado', true);
+  });
 }
 
 // ── CSV ───────────────────────────────────────────────────────────────────────
