@@ -453,7 +453,6 @@ function entryToAtFields(e) {
     'Estado':        estadoToLabel(e.estado),
     'Registrado por':e.jefe,
     'Periodo':       e.periodo,
-    'Creado':        e.creado,
   };
 }
 
@@ -555,11 +554,12 @@ function filterWorkers() {
 function showWorkerInfo() {
   const nombre = document.getElementById('fTrabajador').value;
   const box    = document.getElementById('workerInfoBox');
+  if (!box) return;
   if (!nombre || !WORKERS[nombre]) { box.style.display='none'; return; }
   const w  = WORKERS[nombre];
   const vh = valorHoraPor(nombre);
-  document.getElementById('wiJornada').textContent   = w.jornada + ' hrs/sem';
-  document.getElementById('wiValorHora').textContent = vh ? fmtCLP(vh)+'/hr' : 'Sin sueldo';
+  const wiJ = document.getElementById('wiJornada');
+  if (wiJ) wiJ.textContent = w.jornada + ' hrs/sem';
   box.style.display = 'block';
   calcDuration();
 }
