@@ -372,6 +372,7 @@ async function atLoadEntries() {
     renderAdmin();
   } catch(e) {
     console.error('atLoadEntries error', e);
+    showToast('⚠ Error cargando Airtable: ' + e.message, true);
   }
 }
 
@@ -605,15 +606,21 @@ function saveEntry() {
   if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); return; }
   const vh = valorHoraPor(trabajador);
   const entry = { id:uid(), fecha, local, trabajador, desde, hasta, horas:mins/60, valorHora:vh||0, comentario, estado:'pending', jefe, periodo:curPeriodKey(), creado:new Date().toISOString() };
-  // Guardar en Airtable (async) y luego actualizar atId
+  // Guardar en Airtable
+  entries.unshift(entry);
+  save(); updateBanner(); renderHistorial();
+  
   atCreateEntry(entry).then(atId => {
     if (atId) {
       const idx = entries.findIndex(e=>e.id===entry.id);
       if (idx>=0) { entries[idx].atId = atId; entries[idx].id = atId; save(); }
+      showToast('✓ Sincronizado con Airtable');
+    } else {
+      showToast('⚠ No se pudo sincronizar con Airtable', true);
     }
+  }).catch(err => {
+    showToast('⚠ Error Airtable: ' + err.message, true);
   });
-  entries.unshift(entry);
-  save(); updateBanner(); renderHistorial();
   ['fTrabajador','fDesde','fHasta','fComentario'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('durationDisplay').textContent='— hrs';
   document.getElementById('durationHint').textContent='ingresa horario';
