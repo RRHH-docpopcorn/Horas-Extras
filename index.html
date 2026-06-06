@@ -322,10 +322,10 @@ function valorHoraPor(nombre) {
 // ══════════════════════════════════════════════════════════════════════════════
 // AIRTABLE CONFIG
 // ══════════════════════════════════════════════════════════════════════════════
-const AT_TOKEN   = 'patIymJfM57XMOC6u';
-const AT_BASE    = 'appsiyj4aTKQ5kKtM';
-const AT_TABLE   = 'Horas Extra'; // nombre de la tabla
-let   AT_TABLE_ID = localStorage.getItem('at_table_id') || null;
+const AT_TOKEN    = 'patIymJfM57XMOC6u';
+const AT_BASE     = 'appsiyj4aTKQ5kKtM';
+const AT_TABLE    = 'Horas Extra';
+let   AT_TABLE_ID = 'tblVIxtdzih2zI9To'; // ID real
 
 const AT_HEADERS = {
   'Authorization': `Bearer ${AT_TOKEN}`,
@@ -335,62 +335,9 @@ const AT_HEADERS = {
 // Mapeo campo → field ID (se descubre al init)
 let AT_FIELDS = JSON.parse(localStorage.getItem('at_fields') || 'null');
 
-// ── Crear tabla si no existe ──────────────────────────────────────────────────
+// ── Verificar tabla lista ─────────────────────────────────────────────────────
 async function atEnsureTable() {
-  if (AT_TABLE_ID && AT_FIELDS) return true;
-
-  try {
-    // 1. Buscar si ya existe
-    const r = await fetch(`https://api.airtable.com/v0/meta/bases/${AT_BASE}/tables`, { headers: AT_HEADERS });
-    const data = await r.json();
-    const existing = data.tables?.find(t => t.name === AT_TABLE);
-
-    if (existing) {
-      AT_TABLE_ID = existing.id;
-      AT_FIELDS = buildFieldMap(existing.fields);
-      localStorage.setItem('at_table_id', AT_TABLE_ID);
-      localStorage.setItem('at_fields', JSON.stringify(AT_FIELDS));
-      return true;
-    }
-
-    // 2. Crear tabla
-    const cr = await fetch(`https://api.airtable.com/v0/meta/bases/${AT_BASE}/tables`, {
-      method: 'POST',
-      headers: AT_HEADERS,
-      body: JSON.stringify({
-        name: AT_TABLE,
-        fields: [
-          {name:'Trabajador', type:'singleLineText'},
-          {name:'Local',      type:'singleLineText'},
-          {name:'Fecha',      type:'date',   options:{dateFormat:{name:'iso'}}},
-          {name:'Desde',      type:'singleLineText'},
-          {name:'Hasta',      type:'singleLineText'},
-          {name:'Horas',      type:'number', options:{precision:2}},
-          {name:'Valor Hora', type:'number', options:{precision:0}},
-          {name:'Comentario', type:'singleLineText'},
-          {name:'Estado',     type:'singleSelect', options:{choices:[
-            {name:'Pendiente',color:'yellowLight2'},
-            {name:'Aprobado', color:'greenLight2'},
-            {name:'Rechazado',color:'redLight2'},
-            {name:'Pagado',   color:'blueLight2'}
-          ]}},
-          {name:'Registrado por', type:'singleLineText'},
-          {name:'Periodo',    type:'singleLineText'},
-          {name:'Creado',     type:'dateTime', options:{dateFormat:{name:'iso'},timeFormat:{name:'24hour'},timeZone:'America/Santiago'}}
-        ]
-      })
-    });
-    const newTable = await cr.json();
-    if (!newTable.id) { console.error('No se pudo crear tabla', newTable); return false; }
-    AT_TABLE_ID = newTable.id;
-    AT_FIELDS = buildFieldMap(newTable.fields);
-    localStorage.setItem('at_table_id', AT_TABLE_ID);
-    localStorage.setItem('at_fields', JSON.stringify(AT_FIELDS));
-    return true;
-  } catch(e) {
-    console.error('Airtable init error', e);
-    return false;
-  }
+  return true; // tabla ya existe con ID fijo
 }
 
 function buildFieldMap(fields) {
