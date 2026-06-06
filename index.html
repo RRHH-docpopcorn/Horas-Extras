@@ -326,7 +326,8 @@ function valorHoraPor(nombre) {
 const AT_TOKEN    = 'patokKbYH5aZf3RO9.e13c3a198d51245c548b3b6cd7226398ffeb3bc4191498dbbb45d871290e2b3b';
 const AT_BASE     = 'appsiyj4aTKQ5kKtM';
 const AT_TABLE    = 'Horas Extra';
-let   AT_TABLE_ID = 'tblVIxtdzih2zI9To'; // ID real
+let   AT_TABLE_ID = 'tblVIxtdzih2zI9To';
+const AT_PROXY    = 'https://shrill-tooth-92b9.sindyolea.workers.dev';
 
 const AT_HEADERS = {
   'Authorization': `Bearer ${AT_TOKEN}`,
@@ -354,7 +355,7 @@ async function atLoadEntries() {
   try {
     let records = [], offset = null;
     do {
-      const url = new URL(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE_ID}`);
+      const url = new URL(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`);
       url.searchParams.set('filterByFormula', `{Periodo}="${pk}"`);
       url.searchParams.set('sort[0][field]', 'Creado');
       url.searchParams.set('sort[0][direction]', 'desc');
@@ -409,7 +410,7 @@ function estadoToLabel(k) {
 async function atCreateEntry(entry) {
   if (!await atEnsureTable()) return null;
   try {
-    const r = await fetch(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE_ID}`, {
+    const r = await fetch(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`, {
       method: 'POST',
       headers: AT_HEADERS,
       body: JSON.stringify({ records: [{ fields: entryToAtFields(entry) }] })
@@ -418,6 +419,11 @@ async function atCreateEntry(entry) {
     if (data.records?.[0]) {
       return data.records[0].id;
     }
+    // Log error details visibles
+    const errMsg = data.error ? (data.error.type + ': ' + (data.error.message||'')) : JSON.stringify(data);
+    showToast('⚠ ' + errMsg, true);
+    console.error('Airtable error:', data);
+    return null;
   } catch(e) { console.error('atCreate error', e); }
   return null;
 }
@@ -426,7 +432,7 @@ async function atCreateEntry(entry) {
 async function atUpdateStatus(atId, estado) {
   if (!atId || !await atEnsureTable()) return;
   try {
-    await fetch(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE_ID}`, {
+    await fetch(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`, {
       method: 'PATCH',
       headers: AT_HEADERS,
       body: JSON.stringify({ records: [{ id: atId, fields: { 'Estado': estadoToLabel(estado) } }] })
