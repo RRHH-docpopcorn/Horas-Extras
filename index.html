@@ -318,6 +318,190 @@ function valorHoraPor(nombre) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AIRTABLE CONFIG
+// ══════════════════════════════════════════════════════════════════════════════
+const AT_TOKEN   = 'patIymJfM57XMOC6u';
+const AT_BASE    = 'appsiyj4aTKQ5kKtM';
+const AT_TABLE   = 'Horas Extra'; // nombre de la tabla
+let   AT_TABLE_ID = localStorage.getItem('at_table_id') || null;
+
+const AT_HEADERS = {
+  'Authorization': `Bearer ${AT_TOKEN}`,
+  'Content-Type': 'application/json'
+};
+
+// Mapeo campo → field ID (se descubre al init)
+let AT_FIELDS = JSON.parse(localStorage.getItem('at_fields') || 'null');
+
+// ── Crear tabla si no existe ──────────────────────────────────────────────────
+async function atEnsureTable() {
+  if (AT_TABLE_ID && AT_FIELDS) return true;
+
+  try {
+    // 1. Buscar si ya existe
+    const r = await fetch(`https://api.airtable.com/v0/meta/bases/${AT_BASE}/tables`, { headers: AT_HEADERS });
+    const data = await r.json();
+    const existing = data.tables?.find(t => t.name === AT_TABLE);
+
+    if (existing) {
+      AT_TABLE_ID = existing.id;
+      AT_FIELDS = buildFieldMap(existing.fields);
+      localStorage.setItem('at_table_id', AT_TABLE_ID);
+      localStorage.setItem('at_fields', JSON.stringify(AT_FIELDS));
+      return true;
+    }
+
+    // 2. Crear tabla
+    const cr = await fetch(`https://api.airtable.com/v0/meta/bases/${AT_BASE}/tables`, {
+      method: 'POST',
+      headers: AT_HEADERS,
+      body: JSON.stringify({
+        name: AT_TABLE,
+        fields: [
+          {name:'Trabajador', type:'singleLineText'},
+          {name:'Local',      type:'singleLineText'},
+          {name:'Fecha',      type:'date',   options:{dateFormat:{name:'iso'}}},
+          {name:'Desde',      type:'singleLineText'},
+          {name:'Hasta',      type:'singleLineText'},
+          {name:'Horas',      type:'number', options:{precision:2}},
+          {name:'Valor Hora', type:'number', options:{precision:0}},
+          {name:'Comentario', type:'singleLineText'},
+          {name:'Estado',     type:'singleSelect', options:{choices:[
+            {name:'Pendiente',color:'yellowLight2'},
+            {name:'Aprobado', color:'greenLight2'},
+            {name:'Rechazado',color:'redLight2'},
+            {name:'Pagado',   color:'blueLight2'}
+          ]}},
+          {name:'Registrado por', type:'singleLineText'},
+          {name:'Periodo',    type:'singleLineText'},
+          {name:'Creado',     type:'dateTime', options:{dateFormat:{name:'iso'},timeFormat:{name:'24hour'},timeZone:'America/Santiago'}}
+        ]
+      })
+    });
+    const newTable = await cr.json();
+    if (!newTable.id) { console.error('No se pudo crear tabla', newTable); return false; }
+    AT_TABLE_ID = newTable.id;
+    AT_FIELDS = buildFieldMap(newTable.fields);
+    localStorage.setItem('at_table_id', AT_TABLE_ID);
+    localStorage.setItem('at_fields', JSON.stringify(AT_FIELDS));
+    return true;
+  } catch(e) {
+    console.error('Airtable init error', e);
+    return false;
+  }
+}
+
+function buildFieldMap(fields) {
+  const map = {};
+  fields.forEach(f => map[f.name] = f.id);
+  return map;
+}
+
+// ── Leer todos los registros del período actual ───────────────────────────────
+async function atLoadEntries() {
+  if (!await atEnsureTable()) return;
+  const pk = curPeriodKey();
+  try {
+    let records = [], offset = null;
+    do {
+      const url = new URL(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE_ID}`);
+      url.searchParams.set('filterByFormula', `{Periodo}="${pk}"`);
+      url.searchParams.set('sort[0][field]', 'Creado');
+      url.searchParams.set('sort[0][direction]', 'desc');
+      if (offset) url.searchParams.set('offset', offset);
+      const r = await fetch(url, {headers: AT_HEADERS});
+      const data = await r.json();
+      records = records.concat(data.records || []);
+      offset = data.offset || null;
+    } while (offset);
+
+    entries = records.map(r => atRecordToEntry(r));
+    save(); // cache local
+    updateBanner();
+    renderHistorial();
+    renderAdmin();
+  } catch(e) {
+    console.error('atLoadEntries error', e);
+  }
+}
+
+function atRecordToEntry(r) {
+  const f = r.fields;
+  return {
+    id:         r.id,          // Airtable record ID
+    atId:       r.id,
+    fecha:      f['Fecha']      || '',
+    local:      f['Local']      || '',
+    trabajador: f['Trabajador'] || '',
+    desde:      f['Desde']      || '',
+    hasta:      f['Hasta']      || '',
+    horas:      f['Horas']      || 0,
+    valorHora:  f['Valor Hora'] || 0,
+    comentario: f['Comentario'] || '',
+    estado:     estadoToKey(f['Estado']),
+    jefe:       f['Registrado por'] || '',
+    periodo:    f['Periodo']    || '',
+    creado:     f['Creado']     || new Date().toISOString(),
+  };
+}
+
+function estadoToKey(s) {
+  const map = {'Pendiente':'pending','Aprobado':'approved','Rechazado':'rejected','Pagado':'paid'};
+  return map[s] || 'pending';
+}
+function estadoToLabel(k) {
+  const map = {pending:'Pendiente',approved:'Aprobado',rejected:'Rechazado',paid:'Pagado'};
+  return map[k] || 'Pendiente';
+}
+
+// ── Crear registro ────────────────────────────────────────────────────────────
+async function atCreateEntry(entry) {
+  if (!await atEnsureTable()) return null;
+  try {
+    const r = await fetch(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE_ID}`, {
+      method: 'POST',
+      headers: AT_HEADERS,
+      body: JSON.stringify({ records: [{ fields: entryToAtFields(entry) }] })
+    });
+    const data = await r.json();
+    if (data.records?.[0]) {
+      return data.records[0].id;
+    }
+  } catch(e) { console.error('atCreate error', e); }
+  return null;
+}
+
+// ── Actualizar estado ─────────────────────────────────────────────────────────
+async function atUpdateStatus(atId, estado) {
+  if (!atId || !await atEnsureTable()) return;
+  try {
+    await fetch(`https://api.airtable.com/v0/${AT_BASE}/${AT_TABLE_ID}`, {
+      method: 'PATCH',
+      headers: AT_HEADERS,
+      body: JSON.stringify({ records: [{ id: atId, fields: { 'Estado': estadoToLabel(estado) } }] })
+    });
+  } catch(e) { console.error('atUpdate error', e); }
+}
+
+function entryToAtFields(e) {
+  return {
+    'Trabajador':    e.trabajador,
+    'Local':         e.local,
+    'Fecha':         e.fecha,
+    'Desde':         e.desde,
+    'Hasta':         e.hasta,
+    'Horas':         e.horas,
+    'Valor Hora':    e.valorHora || 0,
+    'Comentario':    e.comentario || '',
+    'Estado':        estadoToLabel(e.estado),
+    'Registrado por':e.jefe,
+    'Periodo':       e.periodo,
+    'Creado':        e.creado,
+  };
+}
+
 const MONTHS_ES  = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const STATUS_LABEL = { pending:'Pendiente', approved:'Aprobado', rejected:'Rechazado', paid:'Pagado' };
 const STATUS_CLASS = { pending:'status-pending', approved:'status-approved', rejected:'status-rejected', paid:'status-paid' };
@@ -393,6 +577,8 @@ document.addEventListener('DOMContentLoaded', () => {
   updateBanner();
   renderHistorial();
   renderAdmin();
+  // Cargar desde Airtable (sobreescribe localStorage con datos frescos)
+  atLoadEntries();
 });
 
 function saveConfig() {
@@ -470,7 +656,15 @@ function saveEntry() {
   const mins=(hh*60+hm)-(dh*60+dm);
   if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); return; }
   const vh = valorHoraPor(trabajador);
-  entries.unshift({ id:uid(), fecha, local, trabajador, desde, hasta, horas:mins/60, valorHora:vh||0, comentario, estado:'pending', jefe, creado:new Date().toISOString() });
+  const entry = { id:uid(), fecha, local, trabajador, desde, hasta, horas:mins/60, valorHora:vh||0, comentario, estado:'pending', jefe, periodo:curPeriodKey(), creado:new Date().toISOString() };
+  // Guardar en Airtable (async) y luego actualizar atId
+  atCreateEntry(entry).then(atId => {
+    if (atId) {
+      const idx = entries.findIndex(e=>e.id===entry.id);
+      if (idx>=0) { entries[idx].atId = atId; entries[idx].id = atId; save(); }
+    }
+  });
+  entries.unshift(entry);
   save(); updateBanner(); renderHistorial();
   ['fTrabajador','fDesde','fHasta','fComentario'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('durationDisplay').textContent='— hrs';
@@ -565,6 +759,7 @@ function renderAdmin() {
 function setStatus(id,s) {
   const i=entries.findIndex(e=>e.id===id); if (i<0) return;
   entries[i].estado=s; save(); updateBanner(); renderAdmin(); renderHistorial();
+  atUpdateStatus(entries[i].atId || id, s);
   showToast({approved:'Aprobado ✓',rejected:'Rechazado',paid:'Marcado como pagado 💵'}[s]);
 }
 
