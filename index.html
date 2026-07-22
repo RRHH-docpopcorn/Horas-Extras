@@ -114,6 +114,11 @@
   .toast.show{transform:translateX(-50%) translateY(0);}
   .config-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
   .config-item{flex:1;min-width:160px;}
+  .chip-row{display:flex;flex-wrap:wrap;gap:8px;}
+  .chip{padding:9px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit;transition:all .15s;}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .tipo-badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;}
+  .otro-box{border:1px dashed var(--accent2);background:rgba(124,109,247,.08);border-radius:var(--radius-sm);padding:12px;margin-top:2px;}
   /* Resumen contador */
   .resumen-wrap { font-size:13px; }
   .resumen-wrap h4 { font-size:13px; font-weight:700; color:var(--text); margin:16px 0 8px; }
@@ -182,9 +187,13 @@
   </div>
 
   <div class="section">
-    <div class="section-title">Registrar hora extra</div>
+    <div class="section-title">Registrar excepción de jornada</div>
     <div class="form-card">
       <div class="form-grid">
+        <div class="field">
+          <label>Tipo de excepción</label>
+          <div class="chip-row" id="tipoChipRow"></div>
+        </div>
         <div class="form-row">
           <div class="field">
             <label>Fecha</label>
@@ -197,33 +206,54 @@
             </select>
           </div>
         </div>
+        <div id="otroBox" class="otro-box" style="display:none;">
+          <div class="form-row">
+            <div class="field">
+              <label>Nombre de la persona</label>
+              <input type="text" id="fOtroNombre" placeholder="Nombre completo">
+            </div>
+            <div class="field">
+              <label>Clasificación</label>
+              <select id="fOtroTipo">
+                <option value="Otro - Prueba">En período de prueba</option>
+                <option value="Otro - Reemplazo">Reemplazo externo</option>
+              </select>
+            </div>
+          </div>
+        </div>
         <div id="workerInfoBox" style="display:none;">
           <div class="duration-box" style="justify-content:flex-start;gap:16px;">
             <div><div style="font-size:11px;color:var(--muted);">Jornada pactada</div><div class="hours" id="wiJornada">—</div></div>
           </div>
         </div>
-        <div class="form-row">
-          <div class="field">
-            <label>Desde</label>
-            <input type="time" id="fDesde" oninput="calcDuration()">
+        <div id="horasBox">
+          <div class="form-row">
+            <div class="field">
+              <label>Desde</label>
+              <input type="time" id="fDesde" oninput="calcDuration()">
+            </div>
+            <div class="field">
+              <label>Hasta</label>
+              <input type="time" id="fHasta" oninput="calcDuration()">
+            </div>
           </div>
           <div class="field">
-            <label>Hasta</label>
-            <input type="time" id="fHasta" oninput="calcDuration()">
+            <label>Duración calculada</label>
+            <div class="duration-box">
+              <span class="hours" id="durationDisplay">— hrs</span>
+              <span class="hint" id="durationHint">ingresa horario</span>
+            </div>
           </div>
         </div>
         <div class="field">
-          <label>Duración calculada</label>
-          <div class="duration-box">
-            <span class="hours" id="durationDisplay">— hrs</span>
-            <span class="hint" id="durationHint">ingresa horario</span>
-          </div>
-        </div>
-        <div class="field">
-          <label>Comentario / Motivo</label>
+          <label>Motivo</label>
           <textarea id="fComentario" rows="2" placeholder="Ej: Cierre de caja, evento especial, cobertura turno..."></textarea>
         </div>
-        <button class="btn-save" onclick="saveEntry()">Guardar hora extra</button>
+        <div class="field">
+          <label>Observación <span style="font-weight:400;text-transform:none;">(opcional)</span></label>
+          <textarea id="fObservacion" rows="2" placeholder="Detalle adicional si es necesario..."></textarea>
+        </div>
+        <button class="btn-save" onclick="saveEntry()">Guardar registro</button>
       </div>
     </div>
   </div>
@@ -259,6 +289,9 @@
         <option value="approved">✓ Aprobado</option>
         <option value="rejected">✕ Rechazado</option>
         <option value="paid">💵 Pagado</option>
+      </select>
+      <select id="aFiltroTipo" onchange="renderAdmin()">
+        <option value="">Todos los tipos</option>
       </select>
     </div>
 
@@ -316,6 +349,47 @@ function valorHoraPor(nombre) {
   const w = WORKERS[nombre];
   if (!w || !w.sueldo || !w.jornada) return null;
   return (w.sueldo * 1.25) / (w.jornada * 4.33) * 1.5;
+}
+
+// ── TIPOS DE EXCEPCIÓN ─────────────────────────────────────────────────────────
+const TIPOS_EXCEPCION = [
+  { v:'Hora Extra',            requiereHoras:true  },
+  { v:'Atraso',                requiereHoras:true  },
+  { v:'Salida Anticipada',     requiereHoras:true  },
+  { v:'Cambio de Turno',       requiereHoras:false },
+  { v:'Reemplazo/Cobertura',   requiereHoras:false },
+  { v:'Ausencia con Licencia', requiereHoras:false },
+  { v:'Ausencia sin Licencia', requiereHoras:false },
+  { v:'Permiso con Goce',      requiereHoras:false },
+  { v:'Permiso sin Goce',      requiereHoras:false },
+];
+let tipoSeleccionado = TIPOS_EXCEPCION[0].v;
+function tipoInfo(v){ return TIPOS_EXCEPCION.find(t=>t.v===v) || TIPOS_EXCEPCION[0]; }
+
+// ── NOTIFICACIÓN POR CORREO ─────────────────────────────────────────────────────
+// MVP: sin backend propio, así que el envío queda simulado + listo para EmailJS.
+// Para activarlo de verdad:
+// 1) Crear cuenta gratis en https://www.emailjs.com/ y un template.
+// 2) Completar EMAILJS_SERVICE_ID / EMAILJS_TEMPLATE_ID / EMAILJS_PUBLIC_KEY abajo.
+// 3) Agregar <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script> en el <head>
+//    y descomentar el bloque real dentro de notifyNewEntry().
+const NOTIFY_EMAILS = ['sindy@empresa.cl', 'hans@empresa.cl', 'gonzalo@empresa.cl'];
+const EMAILJS_SERVICE_ID  = '';
+const EMAILJS_TEMPLATE_ID = '';
+const EMAILJS_PUBLIC_KEY  = '';
+function notifyNewEntry(entry) {
+  const asunto = `Nueva excepción registrada — ${entry.trabajador} (${entry.local})`;
+  const cuerpo = `${entry.tipoExcepcion} el ${entry.fecha}. Motivo: ${entry.comentario || '—'}`;
+
+  /* --- BLOQUE REAL (descomentar cuando EmailJS esté configurado) ---
+  if (window.emailjs && EMAILJS_SERVICE_ID) {
+    NOTIFY_EMAILS.forEach(destino => {
+      emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, { to_email: destino, subject: asunto, message: cuerpo }, EMAILJS_PUBLIC_KEY);
+    });
+  }
+  --------------------------------------------------------------------- */
+
+  console.log('[Notificación simulada] Para:', NOTIFY_EMAILS.join(', '), '| Asunto:', asunto, '|', cuerpo);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -390,6 +464,10 @@ function atRecordToEntry(r) {
     horas:      f['Horas']      || 0,
     valorHora:  f['Valor Hora'] || 0,
     comentario: f['Comentario'] || '',
+    observacion: f['Observación'] || '',
+    tipoExcepcion: f['Tipo Excepción'] || 'Hora Extra',
+    clasificacion: f['Clasificación Trabajador'] || 'Regular',
+    aprobadoPor: f['Aprobado por'] || '',
     estado:     estadoToKey(f['Estado']),
     jefe:       f['Registrado por'] || '',
     periodo:    f['Periodo']    || '',
@@ -429,13 +507,18 @@ async function atCreateEntry(entry) {
 }
 
 // ── Actualizar estado ─────────────────────────────────────────────────────────
-async function atUpdateStatus(atId, estado) {
+async function atUpdateStatus(atId, estado, aprobadoPor) {
   if (!atId || !await atEnsureTable()) return false;
   try {
+    const fields = { 'Estado': estadoToLabel(estado) };
+    if (estado === 'approved' || estado === 'rejected') {
+      fields['Aprobado por'] = aprobadoPor || config.jefe || 'Administradora';
+      fields['Fecha Aprobación'] = new Date().toISOString();
+    }
     const r = await fetch(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`, {
       method: 'PATCH',
       headers: AT_HEADERS,
-      body: JSON.stringify({ records: [{ id: atId, fields: { 'Estado': estadoToLabel(estado) } }] })
+      body: JSON.stringify({ records: [{ id: atId, fields }] })
     });
     const data = await r.json();
     if (data.records?.[0]) return true;
@@ -454,6 +537,9 @@ function entryToAtFields(e) {
     'Horas':         e.horas,
     'Valor Hora':    e.valorHora || 0,
     'Comentario':    e.comentario || '',
+    'Observación':   e.observacion || '',
+    'Tipo Excepción': e.tipoExcepcion || 'Hora Extra',
+    'Clasificación Trabajador': e.clasificacion || 'Regular',
     'Estado':        estadoToLabel(e.estado),
     'Registrado por':e.jefe,
     'Periodo':       e.periodo,
@@ -532,6 +618,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cfgJefe').value  = config.jefe  || '';
   filterWorkers();
   populateAdminFilter();
+  renderTipoChips();
   updateBanner();
   renderHistorial();
   renderAdmin();
@@ -551,13 +638,17 @@ function filterWorkers() {
   const sel   = document.getElementById('fTrabajador');
   const list  = local && WORKERS_BY_LOCAL[local] ? WORKERS_BY_LOCAL[local] : ALL_WORKERS;
   sel.innerHTML = '<option value="">— Seleccionar —</option>' +
-    list.map(w=>`<option>${w}</option>`).join('');
+    list.map(w=>`<option>${w}</option>`).join('') +
+    '<option value="__OTRO__">Otro (prueba / reemplazo — no está en la lista)</option>';
   document.getElementById('workerInfoBox').style.display = 'none';
+  document.getElementById('otroBox').style.display = 'none';
 }
 
 function showWorkerInfo() {
   const nombre = document.getElementById('fTrabajador').value;
   const box    = document.getElementById('workerInfoBox');
+  const otro   = document.getElementById('otroBox');
+  otro.style.display = (nombre === '__OTRO__') ? 'block' : 'none';
   if (!box) return;
   if (!nombre || !WORKERS[nombre]) { box.style.display='none'; return; }
   const w  = WORKERS[nombre];
@@ -568,10 +659,30 @@ function showWorkerInfo() {
   calcDuration();
 }
 
+// ── CHIPS TIPO DE EXCEPCIÓN ─────────────────────────────────────────────────────
+function renderTipoChips() {
+  const row = document.getElementById('tipoChipRow');
+  row.innerHTML = TIPOS_EXCEPCION.map(t =>
+    `<button type="button" class="chip ${t.v===tipoSeleccionado?'active':''}" onclick="selectTipo('${t.v.replace(/'/g,"\\'")}')">${t.v}</button>`
+  ).join('');
+  toggleHorasBox();
+}
+function selectTipo(v) {
+  tipoSeleccionado = v;
+  renderTipoChips();
+}
+function toggleHorasBox() {
+  const info = tipoInfo(tipoSeleccionado);
+  document.getElementById('horasBox').style.display = info.requiereHoras ? 'block' : 'none';
+}
+
 function populateAdminFilter() {
   const sel = document.getElementById('aFiltroTrabajador');
   sel.innerHTML = '<option value="">Todos los trabajadores</option>' +
     ALL_WORKERS.map(w=>`<option>${w}</option>`).join('');
+  const selTipo = document.getElementById('aFiltroTipo');
+  if (selTipo) selTipo.innerHTML = '<option value="">Todos los tipos</option>' +
+    TIPOS_EXCEPCION.map(t=>`<option>${t.v}</option>`).join('');
 }
 
 // ── BANNER ────────────────────────────────────────────────────────────────────
@@ -604,38 +715,61 @@ function calcDuration() {
 // ── GUARDAR ───────────────────────────────────────────────────────────────────
 function saveEntry() {
   const fecha=document.getElementById('fFecha').value,
-        trabajador=document.getElementById('fTrabajador').value,
+        trabajadorSel=document.getElementById('fTrabajador').value,
         desde=document.getElementById('fDesde').value,
         hasta=document.getElementById('fHasta').value,
         comentario=document.getElementById('fComentario').value.trim(),
+        observacion=document.getElementById('fObservacion').value.trim(),
         local=config.local||'Sin local',
-        jefe=config.jefe||'Jefe';
-  if (!fecha||!trabajador||!desde||!hasta) { showToast('⚠ Completa todos los campos',true); return; }
-  const [dh,dm]=desde.split(':').map(Number),[hh,hm]=hasta.split(':').map(Number);
-  const mins=(hh*60+hm)-(dh*60+dm);
-  if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); return; }
-  const vh = valorHoraPor(trabajador);
-  const entry = { id:uid(), fecha, local, trabajador, desde, hasta, horas:mins/60, valorHora:vh||0, comentario, estado:'pending', jefe, periodo:curPeriodKey(), creado:new Date().toISOString() };
+        jefe=config.jefe||'Jefe',
+        tipoExcepcion=tipoSeleccionado,
+        info=tipoInfo(tipoExcepcion);
+
+  if (!fecha||!trabajadorSel) { showToast('⚠ Completa fecha y trabajador',true); return; }
+
+  let trabajador = trabajadorSel, clasificacion = 'Regular';
+  if (trabajadorSel === '__OTRO__') {
+    const otroNombre = document.getElementById('fOtroNombre').value.trim();
+    if (!otroNombre) { showToast('⚠ Ingresa el nombre de la persona (Otro)',true); return; }
+    trabajador = otroNombre;
+    clasificacion = document.getElementById('fOtroTipo').value === 'Otro - Reemplazo' ? 'Otro - Reemplazo' : 'Otro - Prueba';
+  }
+
+  let horas = 0, vh = 0;
+  if (info.requiereHoras) {
+    if (!desde||!hasta) { showToast('⚠ Este tipo de excepción requiere hora de inicio y término',true); return; }
+    const [dh,dm]=desde.split(':').map(Number),[hh,hm]=hasta.split(':').map(Number);
+    const mins=(hh*60+hm)-(dh*60+dm);
+    if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); return; }
+    horas = mins/60;
+    vh = valorHoraPor(trabajador) || 0;
+  }
+
+  const entry = { id:uid(), fecha, local, trabajador, desde:info.requiereHoras?desde:'', hasta:info.requiereHoras?hasta:'',
+    horas, valorHora:vh, comentario, observacion, tipoExcepcion, clasificacion,
+    estado:'pending', jefe, periodo:curPeriodKey(), creado:new Date().toISOString() };
   // Guardar en Airtable
   entries.unshift(entry);
   save(); updateBanner(); renderHistorial();
-  
+
   atCreateEntry(entry).then(atId => {
     if (atId) {
       const idx = entries.findIndex(e=>e.id===entry.id);
       if (idx>=0) { entries[idx].atId = atId; entries[idx].id = atId; save(); }
       showToast('✓ Sincronizado con Airtable');
+      notifyNewEntry(entry);
     } else {
       showToast('⚠ No se pudo sincronizar con Airtable', true);
     }
   }).catch(err => {
     showToast('⚠ Error Airtable: ' + err.message, true);
   });
-  ['fTrabajador','fDesde','fHasta','fComentario'].forEach(id=>document.getElementById(id).value='');
+  ['fTrabajador','fDesde','fHasta','fComentario','fObservacion','fOtroNombre'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('durationDisplay').textContent='— hrs';
   document.getElementById('durationHint').textContent='ingresa horario';
   document.getElementById('workerInfoBox').style.display='none';
-  showToast('✓ Hora extra registrada');
+  document.getElementById('otroBox').style.display='none';
+  showToast('✓ Registro guardado');
 }
 
 // ── HISTORIAL ─────────────────────────────────────────────────────────────────
@@ -649,10 +783,10 @@ function renderHistorial() {
       <div class="entry-dot" style="background:${DOT_COLOR[e.estado]}"></div>
       <div class="entry-info">
         <div class="entry-name">${shortName(e.trabajador)}</div>
-        <div class="entry-meta">${fmtD(e.fecha)} · ${e.desde}–${e.hasta}${e.comentario?' · '+e.comentario:''}</div>
+        <div class="entry-meta"><span class="tipo-badge">${e.tipoExcepcion||'Hora Extra'}</span> ${fmtD(e.fecha)}${e.desde&&e.hasta?' · '+e.desde+'–'+e.hasta:''}${e.comentario?' · '+e.comentario:''}</div>
       </div>
       <div class="entry-right">
-        <div class="entry-hours">${fmtH(e.horas)}</div>
+        ${e.horas?`<div class="entry-hours">${fmtH(e.horas)}</div>`:''}
         <span class="entry-status ${STATUS_CLASS[e.estado]}">${STATUS_LABEL[e.estado]}</span>
       </div>
     </div>`).join('');
@@ -664,10 +798,12 @@ function renderAdmin() {
   const fL=document.getElementById('aFiltroLocal').value;
   const fT=document.getElementById('aFiltroTrabajador').value;
   const fE=document.getElementById('aFiltroEstado').value;
+  const fTipo=document.getElementById('aFiltroTipo')?document.getElementById('aFiltroTipo').value:'';
   let list=entries.filter(e=>getPeriodKey(e.fecha)===mk);
   if (fL) list=list.filter(e=>e.local===fL);
   if (fT) list=list.filter(e=>e.trabajador===fT);
   if (fE) list=list.filter(e=>e.estado===fE);
+  if (fTipo) list=list.filter(e=>(e.tipoExcepcion||'Hora Extra')===fTipo);
 
   const totalHrs   = list.reduce((s,e)=>s+e.horas,0);
   const aprobHrs   = list.filter(e=>e.estado==='approved').reduce((s,e)=>s+e.horas,0);
@@ -700,9 +836,13 @@ function renderAdmin() {
     <div style="background:var(--surface);border:1px solid ${isPending?'rgba(251,191,36,.4)':isApproved?'rgba(52,211,153,.25)':'var(--border)'};border-radius:var(--radius);padding:16px;transition:border-color .2s;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;">
         <div>
-          <div style="font-weight:700;font-size:15px;">${shortName(e.trabajador)}</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${e.local} · ${e.fecha} · ${e.desde}–${e.hasta}</div>
+          <div style="font-weight:700;font-size:15px;">${shortName(e.trabajador)}${(e.clasificacion&&e.clasificacion!=='Regular')?` <span class="tipo-badge">${e.clasificacion.replace('Otro - ','')}</span>`:''}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">
+            <span class="tipo-badge">${e.tipoExcepcion||'Hora Extra'}</span>
+            ${e.local} · ${e.fecha}${e.desde&&e.hasta?` · ${e.desde}–${e.hasta}`:''}
+          </div>
           ${e.comentario?`<div style="font-size:12px;color:var(--muted);margin-top:3px;">💬 ${e.comentario}</div>`:''}
+          ${e.observacion?`<div style="font-size:11.5px;color:var(--muted);margin-top:2px;">📝 ${e.observacion}</div>`:''}
         </div>
         <div style="text-align:right;flex-shrink:0;">
           <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:600;color:var(--accent);">${fmtH(e.horas)}</div>
@@ -726,7 +866,7 @@ function setStatus(id,s) {
   entries[i].estado=s; save(); updateBanner(); renderAdmin(); renderHistorial();
   // Usar atId si existe, sino el id directo (que puede ser el record ID de Airtable)
   const atId = entries[i].atId || entries[i].id;
-  atUpdateStatus(atId, s).then(ok => {
+  atUpdateStatus(atId, s, config.jefe).then(ok => {
     if (ok) showToast({approved:'Aprobado ✓',rejected:'Rechazado',paid:'Marcado como pagado 💵'}[s]);
     else showToast('⚠ No se pudo sincronizar estado', true);
   });
@@ -736,8 +876,8 @@ function setStatus(id,s) {
 function exportCSV() {
   const mk=curPeriodKey(), list=entries.filter(e=>getPeriodKey(e.fecha)===mk);
   if (!list.length) { showToast('Sin datos para exportar',true); return; }
-  const hdr=['Trabajador','Local','Fecha','Desde','Hasta','Horas','Valor Hora','Monto Est.','Comentario','Estado','Registrado por'];
-  const rows=list.map(e=>[e.trabajador,e.local,e.fecha,e.desde,e.hasta,e.horas.toFixed(2),e.valorHora?Math.round(e.valorHora):'',e.valorHora?Math.round(e.horas*e.valorHora):'',e.comentario||'',STATUS_LABEL[e.estado],e.jefe]);
+  const hdr=['Trabajador','Clasificación','Tipo Excepción','Local','Fecha','Desde','Hasta','Horas','Valor Hora','Monto Est.','Motivo','Observación','Estado','Registrado por','Aprobado por'];
+  const rows=list.map(e=>[e.trabajador,e.clasificacion||'Regular',e.tipoExcepcion||'Hora Extra',e.local,e.fecha,e.desde,e.hasta,e.horas.toFixed(2),e.valorHora?Math.round(e.valorHora):'',e.valorHora?Math.round(e.horas*e.valorHora):'',e.comentario||'',e.observacion||'',STATUS_LABEL[e.estado],e.jefe,e.aprobadoPor||'']);
   const csv=[hdr,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}));
