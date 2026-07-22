@@ -178,10 +178,6 @@
             <option>Plaza Oeste</option>
           </select>
         </div>
-        <div class="config-item field">
-          <label>Registrado por</label>
-          <input type="text" id="cfgJefe" placeholder="Tu nombre" oninput="saveConfig()">
-        </div>
       </div>
     </div>
   </div>
@@ -356,12 +352,8 @@ const TIPOS_EXCEPCION = [
   { v:'Hora Extra',            requiereHoras:true  },
   { v:'Atraso',                requiereHoras:true  },
   { v:'Salida Anticipada',     requiereHoras:true  },
-  { v:'Cambio de Turno',       requiereHoras:false },
   { v:'Reemplazo/Cobertura',   requiereHoras:false },
-  { v:'Ausencia con Licencia', requiereHoras:false },
-  { v:'Ausencia sin Licencia', requiereHoras:false },
-  { v:'Permiso con Goce',      requiereHoras:false },
-  { v:'Permiso sin Goce',      requiereHoras:false },
+  { v:'Licencia',              requiereHoras:false },
 ];
 let tipoSeleccionado = TIPOS_EXCEPCION[0].v;
 function tipoInfo(v){ return TIPOS_EXCEPCION.find(t=>t.v===v) || TIPOS_EXCEPCION[0]; }
@@ -371,7 +363,7 @@ function tipoInfo(v){ return TIPOS_EXCEPCION.find(t=>t.v===v) || TIPOS_EXCEPCION
 // Para activarlo de verdad:
 // 1) Crear cuenta gratis en https://www.emailjs.com/ y un template.
 // 2) Completar EMAILJS_SERVICE_ID / EMAILJS_TEMPLATE_ID / EMAILJS_PUBLIC_KEY abajo.
-// 3) Agregar <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script> en el <head>
+// 3) Agregar el script de EmailJS (CDN: @emailjs/browser) en el <head> del HTML
 //    y descomentar el bloque real dentro de notifyNewEntry().
 const NOTIFY_EMAILS = ['sindy@empresa.cl', 'hans@empresa.cl', 'gonzalo@empresa.cl'];
 const EMAILJS_SERVICE_ID  = '';
@@ -434,7 +426,7 @@ async function atLoadEntries() {
       url.searchParams.set('sort[0][field]', 'Creado');
       url.searchParams.set('sort[0][direction]', 'desc');
       if (offset) url.searchParams.set('offset', offset);
-      const r = await fetch(url, {headers: AT_HEADERS});
+      const r = await fetch(url.toString(), {headers: AT_HEADERS});
       const data = await r.json();
       records = records.concat(data.records || []);
       offset = data.offset || null;
@@ -552,7 +544,7 @@ const STATUS_CLASS = { pending:'status-pending', approved:'status-approved', rej
 const DOT_COLOR   = { pending:'#fbbf24', approved:'#34d399', rejected:'#f87171', paid:'#4f8ef7' };
 
 let entries = JSON.parse(localStorage.getItem('hx_entries') || '[]');
-let config  = JSON.parse(localStorage.getItem('hx_config')  || '{"local":"","jefe":""}');
+let config  = JSON.parse(localStorage.getItem('hx_config')  || '{"local":""}');
 
 const uid    = () => Date.now().toString(36)+Math.random().toString(36).slice(2);
 const save   = () => localStorage.setItem('hx_entries', JSON.stringify(entries));
@@ -615,7 +607,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('fFecha').value = today();
   document.getElementById('cfgLocal').value = config.local || '';
-  document.getElementById('cfgJefe').value  = config.jefe  || '';
   filterWorkers();
   populateAdminFilter();
   renderTipoChips();
@@ -628,7 +619,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function saveConfig() {
   config.local = document.getElementById('cfgLocal').value;
-  config.jefe  = document.getElementById('cfgJefe').value;
   localStorage.setItem('hx_config', JSON.stringify(config));
   updateBanner();
 }
@@ -721,7 +711,7 @@ function saveEntry() {
         comentario=document.getElementById('fComentario').value.trim(),
         observacion=document.getElementById('fObservacion').value.trim(),
         local=config.local||'Sin local',
-        jefe=config.jefe||'Jefe',
+        jefe=local,
         tipoExcepcion=tipoSeleccionado,
         info=tipoInfo(tipoExcepcion);
 
@@ -866,7 +856,7 @@ function setStatus(id,s) {
   entries[i].estado=s; save(); updateBanner(); renderAdmin(); renderHistorial();
   // Usar atId si existe, sino el id directo (que puede ser el record ID de Airtable)
   const atId = entries[i].atId || entries[i].id;
-  atUpdateStatus(atId, s, config.jefe).then(ok => {
+  atUpdateStatus(atId, s).then(ok => {
     if (ok) showToast({approved:'Aprobado ✓',rejected:'Rechazado',paid:'Marcado como pagado 💵'}[s]);
     else showToast('⚠ No se pudo sincronizar estado', true);
   });
