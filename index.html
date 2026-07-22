@@ -354,6 +354,7 @@ const TIPOS_EXCEPCION = [
   { v:'Salida Anticipada',     requiereHoras:true  },
   { v:'Reemplazo/Cobertura',   requiereHoras:false },
   { v:'Licencia',              requiereHoras:false },
+  { v:'Ausencia sin Licencia', requiereHoras:false },
 ];
 let tipoSeleccionado = TIPOS_EXCEPCION[0].v;
 function tipoInfo(v){ return TIPOS_EXCEPCION.find(t=>t.v===v) || TIPOS_EXCEPCION[0]; }
