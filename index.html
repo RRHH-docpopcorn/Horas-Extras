@@ -249,7 +249,7 @@
           <label>Observación <span style="font-weight:400;text-transform:none;">(opcional)</span></label>
           <textarea id="fObservacion" rows="2" placeholder="Detalle adicional si es necesario..."></textarea>
         </div>
-        <button class="btn-save" onclick="saveEntry()">Guardar registro</button>
+        <button class="btn-save" id="btnGuardar" onclick="saveEntry()">Guardar registro</button>
       </div>
     </div>
   </div>
@@ -704,7 +704,15 @@ function calcDuration() {
 }
 
 // ── GUARDAR ───────────────────────────────────────────────────────────────────
+let guardandoEntry = false;
 function saveEntry() {
+  if (guardandoEntry) return; // evita doble clic / doble envío
+  guardandoEntry = true;
+  const btn = document.getElementById('btnGuardar');
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+  function liberarBoton(){ guardandoEntry = false; if (btn) { btn.disabled = false; btn.style.opacity = '1'; } clearTimeout(liberarTimeout); }
+  const liberarTimeout = setTimeout(liberarBoton, 8000); // seguro por si la red se cuelga
+
   const fecha=document.getElementById('fFecha').value,
         trabajadorSel=document.getElementById('fTrabajador').value,
         desde=document.getElementById('fDesde').value,
@@ -716,22 +724,22 @@ function saveEntry() {
         tipoExcepcion=tipoSeleccionado,
         info=tipoInfo(tipoExcepcion);
 
-  if (!fecha||!trabajadorSel) { showToast('⚠ Completa fecha y trabajador',true); return; }
+  if (!fecha||!trabajadorSel) { showToast('⚠ Completa fecha y trabajador',true); liberarBoton(); return; }
 
   let trabajador = trabajadorSel, clasificacion = 'Regular';
   if (trabajadorSel === '__OTRO__') {
     const otroNombre = document.getElementById('fOtroNombre').value.trim();
-    if (!otroNombre) { showToast('⚠ Ingresa el nombre de la persona (Otro)',true); return; }
+    if (!otroNombre) { showToast('⚠ Ingresa el nombre de la persona (Otro)',true); liberarBoton(); return; }
     trabajador = otroNombre;
     clasificacion = document.getElementById('fOtroTipo').value === 'Otro - Reemplazo' ? 'Otro - Reemplazo' : 'Otro - Prueba';
   }
 
   let horas = 0, vh = 0;
   if (info.requiereHoras) {
-    if (!desde||!hasta) { showToast('⚠ Este tipo de excepción requiere hora de inicio y término',true); return; }
+    if (!desde||!hasta) { showToast('⚠ Este tipo de excepción requiere hora de inicio y término',true); liberarBoton(); return; }
     const [dh,dm]=desde.split(':').map(Number),[hh,hm]=hasta.split(':').map(Number);
     const mins=(hh*60+hm)-(dh*60+dm);
-    if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); return; }
+    if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); liberarBoton(); return; }
     horas = mins/60;
     vh = valorHoraPor(trabajador) || 0;
   }
@@ -752,8 +760,10 @@ function saveEntry() {
     } else {
       showToast('⚠ No se pudo sincronizar con Airtable', true);
     }
+    liberarBoton();
   }).catch(err => {
     showToast('⚠ Error Airtable: ' + err.message, true);
+    liberarBoton();
   });
   ['fTrabajador','fDesde','fHasta','fComentario','fObservacion','fOtroNombre'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('durationDisplay').textContent='— hrs';
