@@ -119,6 +119,31 @@
   .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
   .tipo-badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;}
   .otro-box{border:1px dashed var(--accent2);background:rgba(124,109,247,.08);border-radius:var(--radius-sm);padding:12px;margin-top:2px;}
+
+  /* Valor: pagar (rojo) / debe (verde) / neutro (gris) */
+  .badge-valor{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:.3px;}
+  .badge-pagar{background:rgba(248,113,113,.15);color:var(--red);}
+  .badge-debe{background:rgba(52,211,153,.15);color:var(--green);}
+  .badge-neutro{background:rgba(255,255,255,.06);color:var(--muted);}
+  .hrs-pagar{color:var(--red) !important;}
+  .hrs-debe{color:var(--green) !important;}
+  .hrs-neutro{color:var(--muted) !important;}
+
+  .entry-edit-row{display:flex;gap:8px;margin-top:10px;}
+  .btn-mini{flex:1;padding:8px;border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;}
+  .btn-mini-edit{background:var(--surface2);border:1px solid var(--border);color:var(--text);}
+  .btn-mini-del{background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:var(--red);}
+  .editing-banner{background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.4);color:var(--yellow);border-radius:var(--radius-sm);padding:10px 13px;font-size:13px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .editing-banner button{background:transparent;border:1px solid rgba(251,191,36,.5);color:var(--yellow);border-radius:7px;padding:5px 10px;font-family:inherit;font-size:11.5px;font-weight:700;cursor:pointer;}
+
+  .reporte-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .reporte-table th{padding:9px 12px;text-align:right;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;}
+  .reporte-table th:first-child,.reporte-table td:first-child{text-align:left;}
+  .reporte-table td{padding:10px 12px;text-align:right;border-bottom:1px solid rgba(46,51,71,.5);white-space:nowrap;font-family:'DM Mono',monospace;}
+  .reporte-table td:first-child{font-family:'DM Sans',sans-serif;font-weight:600;color:var(--text);}
+  .reporte-section{font-family:'DM Sans',sans-serif !important;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);background:var(--surface2);text-align:left !important;}
+  .reporte-total-row td{border-top:2px solid var(--border);border-bottom:none;font-weight:700;color:var(--text);}
+  .neto-note{font-size:11.5px;color:var(--muted);background:var(--surface2);border-radius:var(--radius-sm);padding:10px 13px;margin-top:10px;line-height:1.6;}
   /* Resumen contador */
   .resumen-wrap { font-size:13px; }
   .resumen-wrap h4 { font-size:13px; font-weight:700; color:var(--text); margin:16px 0 8px; }
@@ -241,6 +266,12 @@
             </div>
           </div>
         </div>
+        <div id="horasManualBox" style="display:none;">
+          <div class="field">
+            <label>Horas a recuperar <span style="font-weight:400;text-transform:none;">(opcional — déjalo vacío si no aplica)</span></label>
+            <input type="number" step="0.25" min="0" id="fHorasManual" placeholder="Ej: 8">
+          </div>
+        </div>
         <div class="field">
           <label>Motivo</label>
           <textarea id="fComentario" rows="2" placeholder="Ej: Cierre de caja, evento especial, cobertura turno..."></textarea>
@@ -248,6 +279,10 @@
         <div class="field">
           <label>Observación <span style="font-weight:400;text-transform:none;">(opcional)</span></label>
           <textarea id="fObservacion" rows="2" placeholder="Detalle adicional si es necesario..."></textarea>
+        </div>
+        <div id="editingBanner" class="editing-banner" style="display:none;">
+          <span>✎ Editando un registro pendiente</span>
+          <button onclick="cancelEdit()">Cancelar edición</button>
         </div>
         <button class="btn-save" id="btnGuardar" onclick="saveEntry()">Guardar registro</button>
       </div>
@@ -293,6 +328,14 @@
 
     <!-- CARDS DE REGISTROS (mobile-first) -->
     <div id="adminCards" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;"></div>
+
+    <!-- REPORTE DETALLADO: PAGAR VS RECUPERAR -->
+    <div class="table-wrap" style="margin-bottom:18px;">
+      <div class="table-header">
+        <h3>Reporte detallado — horas a pagar vs. horas a recuperar</h3>
+      </div>
+      <div style="padding:14px 16px;" id="reporteDetallado"></div>
+    </div>
 
     <!-- CIERRE MES -->
     <div class="close-month-bar">
@@ -348,16 +391,34 @@ function valorHoraPor(nombre) {
 }
 
 // ── TIPOS DE EXCEPCIÓN ─────────────────────────────────────────────────────────
+// valorBase: cómo se trata este tipo por defecto —
+//   'pagar'  = genera costo para la empresa (horas extra, se paga con recargo)
+//   'debe'   = el trabajador queda debiendo horas (se recuperan, no se pagan)
+//   'neutro' = informativo, sin efecto en horas ni dinero
+// permiteHorasManual: para tipos sin horario (día completo), permite ingresar
+// horas a recuperar manualmente. Si se dejan en 0, el registro queda 'neutro'.
 const TIPOS_EXCEPCION = [
-  { v:'Hora Extra',            requiereHoras:true  },
-  { v:'Atraso',                requiereHoras:true  },
-  { v:'Salida Anticipada',     requiereHoras:true  },
-  { v:'Reemplazo/Cobertura',   requiereHoras:false },
-  { v:'Licencia',              requiereHoras:false },
-  { v:'Ausencia sin Licencia', requiereHoras:false },
+  { v:'Hora Extra',            requiereHoras:true,  permiteHorasManual:false, valorBase:'pagar'  },
+  { v:'Atraso',                requiereHoras:true,  permiteHorasManual:false, valorBase:'debe'   },
+  { v:'Salida Anticipada',     requiereHoras:true,  permiteHorasManual:false, valorBase:'debe'   },
+  { v:'Reemplazo/Cobertura',   requiereHoras:false, permiteHorasManual:false, valorBase:'neutro' },
+  { v:'Licencia',              requiereHoras:false, permiteHorasManual:true,  valorBase:'neutro' },
+  { v:'Ausencia sin Licencia', requiereHoras:false, permiteHorasManual:true,  valorBase:'debe'   },
 ];
 let tipoSeleccionado = TIPOS_EXCEPCION[0].v;
 function tipoInfo(v){ return TIPOS_EXCEPCION.find(t=>t.v===v) || TIPOS_EXCEPCION[0]; }
+
+// ── CATEGORÍA DE VALOR DE UN REGISTRO ───────────────────────────────────────────
+// Para Licencia / Ausencia sin Licencia: solo cuentan como "debe" si tienen
+// horas a recuperar cargadas (>0). Si no, quedan neutras (solo informativas).
+function valorTipoDe(e) {
+  const info = tipoInfo(e.tipoExcepcion || 'Hora Extra');
+  if (info.permiteHorasManual) return (e.horas > 0) ? 'debe' : 'neutro';
+  return info.valorBase;
+}
+const VALOR_LABEL = { pagar:'A pagar', debe:'A recuperar', neutro:'Sin valor' };
+const VALOR_BADGE_CLASS = { pagar:'badge-pagar', debe:'badge-debe', neutro:'badge-neutro' };
+const VALOR_HRS_CLASS   = { pagar:'hrs-pagar', debe:'hrs-debe', neutro:'hrs-neutro' };
 
 // ── NOTIFICACIÓN POR CORREO ─────────────────────────────────────────────────────
 // MVP: sin backend propio, así que el envío queda simulado + listo para EmailJS.
@@ -520,6 +581,34 @@ async function atUpdateStatus(atId, estado, aprobadoPor) {
   } catch(e) { console.error('atUpdate error', e); return false; }
 }
 
+// ── Actualizar registro completo (edición del jefe, solo si sigue pendiente) ──
+async function atUpdateEntry(atId, entry) {
+  if (!atId) return false;
+  try {
+    const r = await fetch(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`, {
+      method: 'PATCH',
+      headers: AT_HEADERS,
+      body: JSON.stringify({ records: [{ id: atId, fields: entryToAtFields(entry) }] })
+    });
+    const data = await r.json();
+    if (data.records?.[0]) return true;
+    console.error('atUpdateEntry error:', data);
+    return false;
+  } catch(e) { console.error('atUpdateEntry error', e); return false; }
+}
+
+// ── Eliminar registro (solo mientras esté pendiente) ──────────────────────────
+async function atDeleteEntry(atId) {
+  if (!atId) return false;
+  try {
+    const url = new URL(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`);
+    url.searchParams.append('records[]', atId);
+    const r = await fetch(url.toString(), { method:'DELETE', headers: AT_HEADERS });
+    const data = await r.json();
+    return !!(data.records && data.records.length);
+  } catch(e) { console.error('atDeleteEntry error', e); return false; }
+}
+
 function entryToAtFields(e) {
   return {
     'Trabajador':    e.trabajador,
@@ -546,6 +635,7 @@ const DOT_COLOR   = { pending:'#fbbf24', approved:'#34d399', rejected:'#f87171',
 
 let entries = JSON.parse(localStorage.getItem('hx_entries') || '[]');
 let config  = JSON.parse(localStorage.getItem('hx_config')  || '{"local":""}');
+let editingId = null; // id del registro que el jefe está editando (solo si sigue 'pending')
 
 const uid    = () => Date.now().toString(36)+Math.random().toString(36).slice(2);
 const save   = () => localStorage.setItem('hx_entries', JSON.stringify(entries));
@@ -665,6 +755,8 @@ function selectTipo(v) {
 function toggleHorasBox() {
   const info = tipoInfo(tipoSeleccionado);
   document.getElementById('horasBox').style.display = info.requiereHoras ? 'block' : 'none';
+  const manualBox = document.getElementById('horasManualBox');
+  if (manualBox) manualBox.style.display = info.permiteHorasManual ? 'block' : 'none';
 }
 
 function populateAdminFilter() {
@@ -734,14 +826,41 @@ function saveEntry() {
     clasificacion = document.getElementById('fOtroTipo').value === 'Otro - Reemplazo' ? 'Otro - Reemplazo' : 'Otro - Prueba';
   }
 
-  let horas = 0, vh = 0;
+  let horas = 0;
   if (info.requiereHoras) {
     if (!desde||!hasta) { showToast('⚠ Este tipo de excepción requiere hora de inicio y término',true); liberarBoton(); return; }
     const [dh,dm]=desde.split(':').map(Number),[hh,hm]=hasta.split(':').map(Number);
     const mins=(hh*60+hm)-(dh*60+dm);
     if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); liberarBoton(); return; }
     horas = mins/60;
-    vh = valorHoraPor(trabajador) || 0;
+  } else if (info.permiteHorasManual) {
+    const manual = parseFloat(document.getElementById('fHorasManual').value);
+    horas = (!isNaN(manual) && manual > 0) ? manual : 0;
+  }
+
+  // Solo "Hora Extra" genera valor $ (costo a pagar). Atraso / Salida Anticipada /
+  // Ausencia / Licencia con horas a recuperar NO tienen valor monetario asociado:
+  // son horas que el trabajador debe, no horas que se pagan.
+  const vh = (tipoExcepcion === 'Hora Extra') ? (valorHoraPor(trabajador) || 0) : 0;
+
+  if (editingId) {
+    // ── Modo edición: solo permitido si el registro sigue pendiente ──────────
+    const idx = entries.findIndex(e => e.id === editingId);
+    if (idx < 0 || entries[idx].estado !== 'pending') {
+      showToast('⚠ Este registro ya no se puede editar (fue aprobado/rechazado)', true);
+      liberarBoton(); cancelEdit(); return;
+    }
+    const atId = entries[idx].atId || entries[idx].id;
+    const updated = { ...entries[idx], fecha, local, trabajador, desde:info.requiereHoras?desde:'', hasta:info.requiereHoras?hasta:'',
+      horas, valorHora:vh, comentario, observacion, tipoExcepcion, clasificacion };
+    entries[idx] = updated;
+    save(); updateBanner(); renderHistorial();
+    atUpdateEntry(atId, updated).then(ok => {
+      showToast(ok ? '✓ Registro actualizado' : '⚠ No se pudo sincronizar la edición', !ok);
+      liberarBoton();
+    }).catch(err => { showToast('⚠ Error Airtable: ' + err.message, true); liberarBoton(); });
+    cancelEdit();
+    return;
   }
 
   const entry = { id:uid(), fecha, local, trabajador, desde:info.requiereHoras?desde:'', hasta:info.requiereHoras?hasta:'',
@@ -765,12 +884,78 @@ function saveEntry() {
     showToast('⚠ Error Airtable: ' + err.message, true);
     liberarBoton();
   });
-  ['fTrabajador','fDesde','fHasta','fComentario','fObservacion','fOtroNombre'].forEach(id=>document.getElementById(id).value='');
+  ['fTrabajador','fDesde','fHasta','fComentario','fObservacion','fOtroNombre','fHorasManual'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('durationDisplay').textContent='— hrs';
   document.getElementById('durationHint').textContent='ingresa horario';
   document.getElementById('workerInfoBox').style.display='none';
   document.getElementById('otroBox').style.display='none';
   showToast('✓ Registro guardado');
+}
+
+// ── EDITAR / ELIMINAR (jefe, solo mientras el registro está pendiente) ────────
+function editEntry(id) {
+  const e = entries.find(x => x.id === id);
+  if (!e) return;
+  if (e.estado !== 'pending') { showToast('⚠ Solo se pueden editar registros pendientes', true); return; }
+
+  editingId = id;
+  document.getElementById('cfgLocal').value = e.local;
+  saveConfig(); filterWorkers();
+
+  selectTipo(e.tipoExcepcion || 'Hora Extra');
+  document.getElementById('fFecha').value = e.fecha;
+
+  if (e.clasificacion && e.clasificacion !== 'Regular') {
+    document.getElementById('fTrabajador').value = '__OTRO__';
+    showWorkerInfo();
+    document.getElementById('fOtroNombre').value = e.trabajador;
+    document.getElementById('fOtroTipo').value = e.clasificacion;
+  } else {
+    document.getElementById('fTrabajador').value = e.trabajador;
+    showWorkerInfo();
+  }
+
+  document.getElementById('fDesde').value = e.desde || '';
+  document.getElementById('fHasta').value = e.hasta || '';
+  calcDuration();
+  const manualInput = document.getElementById('fHorasManual');
+  if (manualInput) manualInput.value = e.horas ? e.horas : '';
+  document.getElementById('fComentario').value = e.comentario || '';
+  document.getElementById('fObservacion').value = e.observacion || '';
+
+  document.getElementById('editingBanner').style.display = 'flex';
+  document.getElementById('btnGuardar').textContent = 'Guardar cambios';
+  document.querySelector('.section .form-card')?.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function cancelEdit() {
+  editingId = null;
+  document.getElementById('editingBanner').style.display = 'none';
+  document.getElementById('btnGuardar').textContent = 'Guardar registro';
+  ['fTrabajador','fDesde','fHasta','fComentario','fObservacion','fOtroNombre','fHorasManual'].forEach(id=>{
+    const el = document.getElementById(id); if (el) el.value='';
+  });
+  document.getElementById('durationDisplay').textContent='— hrs';
+  document.getElementById('durationHint').textContent='ingresa horario';
+  document.getElementById('workerInfoBox').style.display='none';
+  document.getElementById('otroBox').style.display='none';
+  document.getElementById('fFecha').value = today();
+}
+
+function deleteEntry(id) {
+  const e = entries.find(x => x.id === id);
+  if (!e) return;
+  if (e.estado !== 'pending') { showToast('⚠ Solo se pueden eliminar registros pendientes', true); return; }
+  if (!confirm(`¿Eliminar el registro de ${shortName(e.trabajador)} (${e.tipoExcepcion}, ${fmtD(e.fecha)})? Esta acción no se puede deshacer.`)) return;
+
+  const atId = e.atId || e.id;
+  entries = entries.filter(x => x.id !== id);
+  save(); updateBanner(); renderHistorial();
+  if (editingId === id) cancelEdit();
+
+  atDeleteEntry(atId).then(ok => {
+    showToast(ok ? '✓ Registro eliminado' : '⚠ Eliminado localmente, pero no se pudo sincronizar con Airtable', !ok);
+  }).catch(err => showToast('⚠ Error Airtable: ' + err.message, true));
 }
 
 // ── HISTORIAL ─────────────────────────────────────────────────────────────────
@@ -779,18 +964,32 @@ function renderHistorial() {
   document.getElementById('historialCount').textContent=`${list.length} registros`;
   const el=document.getElementById('historialList');
   if (!list.length) { el.innerHTML='<div class="empty"><div class="icon">📋</div>Sin registros este mes.</div>'; return; }
-  el.innerHTML=list.map(e=>`
-    <div class="entry-card">
-      <div class="entry-dot" style="background:${DOT_COLOR[e.estado]}"></div>
-      <div class="entry-info">
-        <div class="entry-name">${shortName(e.trabajador)}</div>
-        <div class="entry-meta"><span class="tipo-badge">${e.tipoExcepcion||'Hora Extra'}</span> ${fmtD(e.fecha)}${e.desde&&e.hasta?' · '+e.desde+'–'+e.hasta:''}${e.comentario?' · '+e.comentario:''}</div>
+  el.innerHTML=list.map(e=>{
+    const vt = valorTipoDe(e);
+    return `
+    <div class="entry-card" style="flex-direction:column;align-items:stretch;">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div class="entry-dot" style="background:${DOT_COLOR[e.estado]}"></div>
+        <div class="entry-info">
+          <div class="entry-name">${shortName(e.trabajador)}</div>
+          <div class="entry-meta">
+            <span class="tipo-badge">${e.tipoExcepcion||'Hora Extra'}</span>
+            <span class="badge-valor ${VALOR_BADGE_CLASS[vt]}">${VALOR_LABEL[vt]}</span>
+            ${fmtD(e.fecha)}${e.desde&&e.hasta?' · '+e.desde+'–'+e.hasta:''}${e.comentario?' · '+e.comentario:''}
+          </div>
+        </div>
+        <div class="entry-right">
+          ${e.horas?`<div class="entry-hours ${VALOR_HRS_CLASS[vt]}">${fmtH(e.horas)}</div>`:''}
+          <span class="entry-status ${STATUS_CLASS[e.estado]}">${STATUS_LABEL[e.estado]}</span>
+        </div>
       </div>
-      <div class="entry-right">
-        ${e.horas?`<div class="entry-hours">${fmtH(e.horas)}</div>`:''}
-        <span class="entry-status ${STATUS_CLASS[e.estado]}">${STATUS_LABEL[e.estado]}</span>
-      </div>
-    </div>`).join('');
+      ${e.estado==='pending' ? `
+      <div class="entry-edit-row">
+        <button class="btn-mini btn-mini-edit" onclick="editEntry('${e.id}')">✎ Editar</button>
+        <button class="btn-mini btn-mini-del" onclick="deleteEntry('${e.id}')">🗑 Eliminar</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 // ── ADMIN ─────────────────────────────────────────────────────────────────────
@@ -811,11 +1010,19 @@ function renderAdmin() {
   const aprobMonto = list.filter(e=>e.estado==='approved').reduce((s,e)=>s+(e.horas*(e.valorHora||0)),0);
   const pendientes = list.filter(e=>e.estado==='pending').length;
 
+  const aprobadasOpagadas = list.filter(e=>e.estado==='approved'||e.estado==='paid');
+  const hrsPagar = aprobadasOpagadas.filter(e=>valorTipoDe(e)==='pagar').reduce((s,e)=>s+e.horas,0);
+  const hrsDebe  = aprobadasOpagadas.filter(e=>valorTipoDe(e)==='debe').reduce((s,e)=>s+e.horas,0);
+  const montoPagar = aprobadasOpagadas.filter(e=>valorTipoDe(e)==='pagar').reduce((s,e)=>s+(e.horas*(e.valorHora||0)),0);
+
   document.getElementById('summaryCards').innerHTML=`
     <div class="summary-card"><div class="sc-val">${fmtH(totalHrs)}</div><div class="sc-lbl">Total horas</div></div>
-    <div class="summary-card"><div class="sc-val">${fmtH(aprobHrs)}</div><div class="sc-lbl">Aprobadas</div></div>
-    <div class="summary-card"><div class="sc-val">${fmtCLP(aprobMonto)}</div><div class="sc-lbl">Monto aprobado</div></div>
+    <div class="summary-card"><div class="sc-val" style="color:var(--red)">${fmtH(hrsPagar)}</div><div class="sc-lbl">Hrs a pagar (aprob.)</div></div>
+    <div class="summary-card"><div class="sc-val" style="color:var(--green)">${fmtH(hrsDebe)}</div><div class="sc-lbl">Hrs a recuperar (aprob.)</div></div>
+    <div class="summary-card"><div class="sc-val" style="color:var(--red)">${fmtCLP(montoPagar)}</div><div class="sc-lbl">Monto a pagar</div></div>
     <div class="summary-card"><div class="sc-val" style="color:var(--yellow)">${pendientes}</div><div class="sc-lbl">Pendientes</div></div>`;
+
+  renderReporteDetallado(list);
 
   const container = document.getElementById('adminCards');
   if (!list.length) {
@@ -830,6 +1037,7 @@ function renderAdmin() {
   });
 
   container.innerHTML = sorted.map(e => {
+    const vt = valorTipoDe(e);
     const monto = e.valorHora ? fmtCLP(e.horas * e.valorHora) : '—';
     const isPending  = e.estado==='pending';
     const isApproved = e.estado==='approved';
@@ -840,14 +1048,15 @@ function renderAdmin() {
           <div style="font-weight:700;font-size:15px;">${shortName(e.trabajador)}${(e.clasificacion&&e.clasificacion!=='Regular')?` <span class="tipo-badge">${e.clasificacion.replace('Otro - ','')}</span>`:''}</div>
           <div style="font-size:12px;color:var(--muted);margin-top:2px;">
             <span class="tipo-badge">${e.tipoExcepcion||'Hora Extra'}</span>
+            <span class="badge-valor ${VALOR_BADGE_CLASS[vt]}">${VALOR_LABEL[vt]}</span>
             ${e.local} · ${e.fecha}${e.desde&&e.hasta?` · ${e.desde}–${e.hasta}`:''}
           </div>
           ${e.comentario?`<div style="font-size:12px;color:var(--muted);margin-top:3px;">💬 ${e.comentario}</div>`:''}
           ${e.observacion?`<div style="font-size:11.5px;color:var(--muted);margin-top:2px;">📝 ${e.observacion}</div>`:''}
         </div>
         <div style="text-align:right;flex-shrink:0;">
-          <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:600;color:var(--accent);">${fmtH(e.horas)}</div>
-          <div style="font-size:11px;color:var(--muted);">hrs · ${monto}</div>
+          <div class="${VALOR_HRS_CLASS[vt]}" style="font-family:'DM Mono',monospace;font-size:20px;font-weight:600;">${e.horas?fmtH(e.horas):'—'}</div>
+          <div style="font-size:11px;color:var(--muted);">${vt==='pagar'?`hrs · ${monto}`:'hrs'}</div>
           <span class="entry-status ${STATUS_CLASS[e.estado]}" style="margin-top:5px;">${STATUS_LABEL[e.estado]}</span>
         </div>
       </div>
@@ -860,6 +1069,63 @@ function renderAdmin() {
       <button onclick="setStatus('${e.id}','paid')" style="width:100%;padding:11px;background:rgba(79,142,247,.15);border:1px solid rgba(79,142,247,.4);border-radius:10px;color:var(--accent);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;">💵 Marcar como pagado</button>` : ''}
     </div>`;
   }).join('');
+}
+
+// ── REPORTE DETALLADO: pagar vs. recuperar, por trabajador ────────────────────
+// Solo se cuentan registros aprobados o pagados (los pendientes y rechazados no
+// afectan el reporte). Las horas "a pagar" y "a recuperar" NO se netean en dinero
+// porque no valen lo mismo: una es costo real (recargo legal), la otra es tiempo
+// que el trabajador compensa después. El neto en horas es solo referencial.
+function renderReporteDetallado(list) {
+  const el = document.getElementById('reporteDetallado');
+  if (!el) return;
+  const relevantes = list.filter(e => e.estado==='approved' || e.estado==='paid');
+  if (!relevantes.length) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Sin registros aprobados o pagados con estos filtros.</p>`;
+    return;
+  }
+  const byW = {};
+  relevantes.forEach(e=>{
+    if (!byW[e.trabajador]) byW[e.trabajador] = { local:e.local, pagar:0, monto:0, debe:0 };
+    const vt = valorTipoDe(e);
+    if (vt==='pagar') { byW[e.trabajador].pagar += e.horas; byW[e.trabajador].monto += e.horas*(e.valorHora||0); }
+    else if (vt==='debe') { byW[e.trabajador].debe += e.horas; }
+  });
+
+  const locales = ['Pajaritos','Plaza Oeste'];
+  let html = `<table class="reporte-table"><thead><tr>
+    <th style="text-align:left">Trabajador</th>
+    <th>Hrs a pagar</th><th>Monto a pagar</th>
+    <th>Hrs a recuperar</th><th>Neto (hrs)</th>
+  </tr></thead><tbody>`;
+
+  let totPagar=0, totMonto=0, totDebe=0;
+  locales.forEach(local=>{
+    const rows = Object.entries(byW).filter(([,v])=>v.local===local && (v.pagar>0||v.debe>0));
+    if (!rows.length) return;
+    html += `<tr><td colspan="5" class="reporte-section">${local}</td></tr>`;
+    rows.forEach(([nombre,v])=>{
+      const neto = v.pagar - v.debe;
+      totPagar+=v.pagar; totMonto+=v.monto; totDebe+=v.debe;
+      html += `<tr>
+        <td>${shortName(nombre)}</td>
+        <td style="color:var(--red)">${v.pagar?fmtH(v.pagar):'—'}</td>
+        <td style="color:var(--red)">${v.monto?fmtCLP(v.monto):'—'}</td>
+        <td style="color:var(--green)">${v.debe?fmtH(v.debe):'—'}</td>
+        <td style="color:${neto>=0?'var(--red)':'var(--green)'}">${neto>=0?'+':''}${fmtH(neto)}</td>
+      </tr>`;
+    });
+  });
+  html += `<tr class="reporte-total-row">
+    <td>Total</td>
+    <td style="color:var(--red)">${fmtH(totPagar)}</td>
+    <td style="color:var(--red)">${fmtCLP(totMonto)}</td>
+    <td style="color:var(--green)">${fmtH(totDebe)}</td>
+    <td>${(totPagar-totDebe)>=0?'+':''}${fmtH(totPagar-totDebe)}</td>
+  </tr>`;
+  html += `</tbody></table>`;
+  html += `<div class="neto-note">⚠ El "neto en horas" es solo referencial — <strong>no equivale a dinero</strong>. Las horas a pagar tienen recargo legal (150%); las horas a recuperar son tiempo que la trabajadora compensa después, sin costo asociado. Úsalo para ver de un vistazo quién tiene más horas trabajadas de más que por recuperar, no para calcular pagos.</div>`;
+  el.innerHTML = html;
 }
 
 function setStatus(id,s) {
@@ -877,8 +1143,8 @@ function setStatus(id,s) {
 function exportCSV() {
   const mk=curPeriodKey(), list=entries.filter(e=>getPeriodKey(e.fecha)===mk);
   if (!list.length) { showToast('Sin datos para exportar',true); return; }
-  const hdr=['Trabajador','Clasificación','Tipo Excepción','Local','Fecha','Desde','Hasta','Horas','Valor Hora','Monto Est.','Motivo','Observación','Estado','Registrado por','Aprobado por'];
-  const rows=list.map(e=>[e.trabajador,e.clasificacion||'Regular',e.tipoExcepcion||'Hora Extra',e.local,e.fecha,e.desde,e.hasta,e.horas.toFixed(2),e.valorHora?Math.round(e.valorHora):'',e.valorHora?Math.round(e.horas*e.valorHora):'',e.comentario||'',e.observacion||'',STATUS_LABEL[e.estado],e.jefe,e.aprobadoPor||'']);
+  const hdr=['Trabajador','Clasificación','Tipo Excepción','Categoría','Local','Fecha','Desde','Hasta','Horas','Valor Hora','Monto Est.','Motivo','Observación','Estado','Registrado por','Aprobado por'];
+  const rows=list.map(e=>[e.trabajador,e.clasificacion||'Regular',e.tipoExcepcion||'Hora Extra',VALOR_LABEL[valorTipoDe(e)],e.local,e.fecha,e.desde,e.hasta,e.horas.toFixed(2),e.valorHora?Math.round(e.valorHora):'',e.valorHora?Math.round(e.horas*e.valorHora):'',e.comentario||'',e.observacion||'',STATUS_LABEL[e.estado],e.jefe,e.aprobadoPor||'']);
   const csv=[hdr,...rows].map(r=>r.map(c=>`"${c}"`).join(',')).join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}));
