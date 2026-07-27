@@ -119,6 +119,10 @@
   .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
   .tipo-badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--muted);text-transform:uppercase;letter-spacing:.3px;}
   .otro-box{border:1px dashed var(--accent2);background:rgba(124,109,247,.08);border-radius:var(--radius-sm);padding:12px;margin-top:2px;}
+  .tipo-nota{margin-top:10px;background:var(--surface2);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:10px 13px;font-size:12.5px;line-height:1.55;color:var(--muted);}
+  .tipo-nota.nota-pagar{border-left-color:var(--red);}
+  .tipo-nota.nota-debe{border-left-color:var(--green);}
+  .tipo-nota.nota-neutro{border-left-color:var(--muted);}
 
   /* Valor: pagar (rojo) / debe (verde) / neutro (gris) */
   .badge-valor{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:.3px;}
@@ -162,9 +166,20 @@
   @media(max-width:480px){
     .month-stats{display:none;}
     .form-row{grid-template-columns:1fr;}
-    .data-table{display:block;overflow-x:auto;}
+    .data-table,.reporte-table,.resumen-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
     .filters-row select,.filters-row input{min-width:100%;}
     .summary-cards{grid-template-columns:1fr 1fr;}
+    .section,.admin-section{padding:14px 12px;}
+    .form-card{padding:15px;}
+    .close-month-bar{flex-direction:column;align-items:stretch;}
+    .close-month-bar > div{width:100%;}
+    .close-month-bar button{width:100%;}
+    .table-header{flex-wrap:wrap;gap:8px;}
+    .modal{padding:20px 14px;}
+  }
+  @media(max-width:600px){
+    .table-wrap{border-radius:12px;}
+    .table-wrap > div[style*="padding:14px 16px"]{padding:12px !important;}
   }
 </style>
 </head>
@@ -214,6 +229,7 @@
         <div class="field">
           <label>Tipo de excepción</label>
           <div class="chip-row" id="tipoChipRow"></div>
+          <div class="tipo-nota" id="tipoNota"></div>
         </div>
         <div class="form-row">
           <div class="field">
@@ -329,6 +345,25 @@
     <!-- CARDS DE REGISTROS (mobile-first) -->
     <div id="adminCards" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;"></div>
 
+    <!-- DEFINICIONES: ¿se descuenta o se da a recuperar? -->
+    <div class="table-wrap" style="margin-bottom:18px;">
+      <div class="table-header">
+        <h3>Definiciones pendientes — ¿se descuenta o se recupera?</h3>
+      </div>
+      <div style="padding:14px 16px;" id="definicionesPendientes"></div>
+    </div>
+
+    <!-- SALDO DE HORAS POR RECUPERAR (no se resetea el 26) -->
+    <div class="table-wrap" style="margin-bottom:18px;">
+      <div class="table-header">
+        <h3>Saldo de horas por recuperar</h3>
+      </div>
+      <div style="padding:14px 16px;">
+        <p style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">Este saldo no se reinicia el día 26 — se mantiene como cuenta corriente hasta marcar cada tramo como recuperado.</p>
+        <div id="saldoGlobalPanel"></div>
+      </div>
+    </div>
+
     <!-- REPORTE DETALLADO: PAGAR VS RECUPERAR -->
     <div class="table-wrap" style="margin-bottom:18px;">
       <div class="table-header">
@@ -398,12 +433,18 @@ function valorHoraPor(nombre) {
 // permiteHorasManual: para tipos sin horario (día completo), permite ingresar
 // horas a recuperar manualmente. Si se dejan en 0, el registro queda 'neutro'.
 const TIPOS_EXCEPCION = [
-  { v:'Hora Extra',            requiereHoras:true,  permiteHorasManual:false, valorBase:'pagar'  },
-  { v:'Atraso',                requiereHoras:true,  permiteHorasManual:false, valorBase:'debe'   },
-  { v:'Salida Anticipada',     requiereHoras:true,  permiteHorasManual:false, valorBase:'debe'   },
-  { v:'Reemplazo/Cobertura',   requiereHoras:false, permiteHorasManual:false, valorBase:'neutro' },
-  { v:'Licencia',              requiereHoras:false, permiteHorasManual:true,  valorBase:'neutro' },
-  { v:'Ausencia sin Licencia', requiereHoras:false, permiteHorasManual:true,  valorBase:'debe'   },
+  { v:'Hora Extra',            requiereHoras:true,  permiteHorasManual:false, valorBase:'pagar',
+    nota:'Registra el rango exacto (desde–hasta) trabajado fuera del horario normal. El sistema calcula las horas y el monto a pagar automáticamente, con recargo legal.' },
+  { v:'Atraso',                requiereHoras:true,  permiteHorasManual:false, valorBase:'debe',
+    nota:'Recuerda registrar el rango del atraso (desde–hasta), para cuantificar cuántas horas queda al debe la trabajadora. Esto no genera pago, es tiempo que se recupera.' },
+  { v:'Salida Anticipada',     requiereHoras:true,  permiteHorasManual:false, valorBase:'debe',
+    nota:'Registra el rango desde que se retiró hasta el término de su turno programado, para cuantificar cuántas horas queda al debe. No genera pago, es tiempo a recuperar.' },
+  { v:'Reemplazo/Cobertura',   requiereHoras:false, permiteHorasManual:false, valorBase:'neutro',
+    nota:'Este registro es solo informativo: no genera horas a pagar ni a recuperar. Úsalo para dejar constancia de quién cubrió a quién y por qué.' },
+  { v:'Licencia',              requiereHoras:false, permiteHorasManual:true,  valorBase:'neutro',
+    nota:'' },
+  { v:'Ausencia sin Licencia', requiereHoras:false, permiteHorasManual:true,  valorBase:'debe',
+    nota:'Si dejas "Horas a recuperar" vacío, este registro queda solo informativo. Si indicas horas, quedan registradas como horas que la trabajadora debe recuperar.' },
 ];
 let tipoSeleccionado = TIPOS_EXCEPCION[0].v;
 function tipoInfo(v){ return TIPOS_EXCEPCION.find(t=>t.v===v) || TIPOS_EXCEPCION[0]; }
@@ -419,6 +460,41 @@ function valorTipoDe(e) {
 const VALOR_LABEL = { pagar:'A pagar', debe:'A recuperar', neutro:'Sin valor' };
 const VALOR_BADGE_CLASS = { pagar:'badge-pagar', debe:'badge-debe', neutro:'badge-neutro' };
 const VALOR_HRS_CLASS   = { pagar:'hrs-pagar', debe:'hrs-debe', neutro:'hrs-neutro' };
+
+// ── DECISIÓN DE SALDO (descontar / recuperar) ───────────────────────────────────
+// Vive en el campo real de Airtable "Decisión Saldo" (single select), con estas
+// 4 opciones: Sin definir | Descontar | Recuperar - Pendiente | Recuperar - Recuperado.
+const SALDO_OPTION_TO_META = {
+  'Descontar':               { decision:'descontar', estado:'pendiente'  },
+  'Recuperar - Pendiente':   { decision:'recuperar',  estado:'pendiente'  },
+  'Recuperar - Recuperado':  { decision:'recuperar',  estado:'recuperado' },
+  'Sin definir':             { decision:null,         estado:null         },
+};
+const SALDO_META_TO_OPTION = {
+  'descontar-pendiente':    'Descontar',
+  'recuperar-pendiente':    'Recuperar - Pendiente',
+  'recuperar-recuperado':   'Recuperar - Recuperado',
+};
+function saldoOptionFrom(decision, estado) {
+  if (!decision) return null;
+  return SALDO_META_TO_OPTION[`${decision}-${estado||'pendiente'}`] || null;
+}
+// Compatibilidad con la versión anterior (etiqueta §SALDO:...§ dentro de Observación,
+// por si alguna vez se guardó un registro con esa versión intermedia del sistema).
+const SALDO_META_RE_LEGACY = /\n?§SALDO:(recuperar|descontar)\|(pendiente|recuperado)§/;
+function stripSaldoMetaLegacy(obs) { return (obs||'').replace(SALDO_META_RE_LEGACY,'').trim(); }
+function parseSaldoMetaLegacy(obs) {
+  const m = SALDO_META_RE_LEGACY.exec(obs||'');
+  return m ? { decision:m[1], estado:m[2] } : { decision:null, estado:null };
+}
+const SALDO_LABEL = {
+  'null':'Sin definir', 'recuperar-pendiente':'A recuperar (pendiente)',
+  'recuperar-recuperado':'Recuperado ✓', 'descontar-pendiente':'Se descuenta'
+};
+function saldoLabelDe(e) {
+  if (!e.saldoDecision) return 'Sin definir';
+  return SALDO_LABEL[`${e.saldoDecision}-${e.saldoEstado||'pendiente'}`] || 'Sin definir';
+}
 
 // ── NOTIFICACIÓN POR CORREO ─────────────────────────────────────────────────────
 // MVP: sin backend propio, así que el envío queda simulado + listo para EmailJS.
@@ -505,8 +581,57 @@ async function atLoadEntries() {
   }
 }
 
+// ── Cargar TODOS los registros (todos los períodos) solo para el saldo ────────
+// El saldo de "horas a recuperar" no se resetea el 26 de cada mes: se mantiene
+// como una cuenta corriente hasta que se marca como recuperada, por eso necesita
+// mirar el historial completo y no solo el período actual.
+let saldoPorTrabajador = {}; // { nombre: { horas: n, pendientes:[entry,...] } }
+let sinDefinirGlobal = []; // registros 'debe' aprobados/pagados de CUALQUIER período que aún no tienen decisión
+async function atLoadSaldoGlobal() {
+  try {
+    let records = [], offset = null;
+    do {
+      const url = new URL(`${AT_PROXY}/v0/${AT_BASE}/${AT_TABLE_ID}`);
+      url.searchParams.set('sort[0][field]', 'Fecha');
+      url.searchParams.set('sort[0][direction]', 'asc');
+      if (offset) url.searchParams.set('offset', offset);
+      const r = await fetch(url.toString(), {headers: AT_HEADERS});
+      const data = await r.json();
+      records = records.concat(data.records || []);
+      offset = data.offset || null;
+    } while (offset);
+
+    const todas = records.map(r => atRecordToEntry(r));
+    saldoPorTrabajador = {};
+    sinDefinirGlobal = [];
+    todas.forEach(e => {
+      if (!(e.estado==='approved' || e.estado==='paid')) return;
+      if (valorTipoDe(e) !== 'debe') return;
+      if (!e.saldoDecision) { sinDefinirGlobal.push(e); return; }
+      if (e.saldoDecision !== 'recuperar') return;
+      if (!saldoPorTrabajador[e.trabajador]) saldoPorTrabajador[e.trabajador] = { local:e.local, horas:0, pendientes:[] };
+      if (e.saldoEstado === 'pendiente') {
+        saldoPorTrabajador[e.trabajador].horas += e.horas;
+        saldoPorTrabajador[e.trabajador].pendientes.push(e);
+      }
+    });
+    renderAdmin();
+  } catch(e) {
+    console.error('atLoadSaldoGlobal error', e);
+  }
+}
+
+
 function atRecordToEntry(r) {
   const f = r.fields;
+  const obsRaw = f['Observación'] || '';
+  let meta = SALDO_OPTION_TO_META[f['Decisión Saldo']] || { decision:null, estado:null };
+  let obsLimpia = obsRaw;
+  if (!meta.decision) {
+    // Compatibilidad: si quedó algo de la versión con etiqueta de texto, se lee de ahí.
+    const legacy = parseSaldoMetaLegacy(obsRaw);
+    if (legacy.decision) { meta = legacy; obsLimpia = stripSaldoMetaLegacy(obsRaw); }
+  }
   return {
     id:         r.id,          // Airtable record ID
     atId:       r.id,
@@ -518,7 +643,9 @@ function atRecordToEntry(r) {
     horas:      f['Horas']      || 0,
     valorHora:  f['Valor Hora'] || 0,
     comentario: f['Comentario'] || '',
-    observacion: f['Observación'] || '',
+    observacion: obsLimpia,
+    saldoDecision: meta.decision,
+    saldoEstado:   meta.estado,
     tipoExcepcion: f['Tipo Excepción'] || 'Hora Extra',
     clasificacion: f['Clasificación Trabajador'] || 'Regular',
     aprobadoPor: f['Aprobado por'] || '',
@@ -610,7 +737,7 @@ async function atDeleteEntry(atId) {
 }
 
 function entryToAtFields(e) {
-  return {
+  const fields = {
     'Trabajador':    e.trabajador,
     'Local':         e.local,
     'Fecha':         e.fecha,
@@ -626,6 +753,9 @@ function entryToAtFields(e) {
     'Registrado por':e.jefe,
     'Periodo':       e.periodo,
   };
+  const saldoOption = saldoOptionFrom(e.saldoDecision, e.saldoEstado);
+  if (saldoOption) fields['Decisión Saldo'] = saldoOption;
+  return fields;
 }
 
 const MONTHS_ES  = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -706,6 +836,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderAdmin();
   // Cargar desde Airtable (sobreescribe localStorage con datos frescos)
   atLoadEntries();
+  atLoadSaldoGlobal();
 });
 
 function saveConfig() {
@@ -757,6 +888,16 @@ function toggleHorasBox() {
   document.getElementById('horasBox').style.display = info.requiereHoras ? 'block' : 'none';
   const manualBox = document.getElementById('horasManualBox');
   if (manualBox) manualBox.style.display = info.permiteHorasManual ? 'block' : 'none';
+  const nota = document.getElementById('tipoNota');
+  if (nota) {
+    if (info.nota) {
+      nota.style.display = 'block';
+      nota.textContent = info.nota;
+      nota.className = 'tipo-nota nota-' + (info.valorBase || 'neutro');
+    } else {
+      nota.style.display = 'none';
+    }
+  }
 }
 
 function populateAdminFilter() {
@@ -966,6 +1107,9 @@ function renderHistorial() {
   if (!list.length) { el.innerHTML='<div class="empty"><div class="icon">📋</div>Sin registros este mes.</div>'; return; }
   el.innerHTML=list.map(e=>{
     const vt = valorTipoDe(e);
+    const saldoTxt = vt==='debe' ? saldoLabelDe(e) : '';
+    const saldoCls = e.saldoDecision==='recuperar' ? (e.saldoEstado==='recuperado'?'badge-pagar':'badge-debe')
+                    : e.saldoDecision==='descontar' ? 'badge-pagar' : 'badge-neutro';
     return `
     <div class="entry-card" style="flex-direction:column;align-items:stretch;">
       <div style="display:flex;align-items:center;gap:14px;">
@@ -975,6 +1119,7 @@ function renderHistorial() {
           <div class="entry-meta">
             <span class="tipo-badge">${e.tipoExcepcion||'Hora Extra'}</span>
             <span class="badge-valor ${VALOR_BADGE_CLASS[vt]}">${VALOR_LABEL[vt]}</span>
+            ${saldoTxt?`<span class="badge-valor ${saldoCls}">${saldoTxt}</span>`:''}
             ${fmtD(e.fecha)}${e.desde&&e.hasta?' · '+e.desde+'–'+e.hasta:''}${e.comentario?' · '+e.comentario:''}
           </div>
         </div>
@@ -1023,6 +1168,8 @@ function renderAdmin() {
     <div class="summary-card"><div class="sc-val" style="color:var(--yellow)">${pendientes}</div><div class="sc-lbl">Pendientes</div></div>`;
 
   renderReporteDetallado(list);
+  renderDefiniciones();
+  renderSaldoGlobal();
 
   const container = document.getElementById('adminCards');
   if (!list.length) {
@@ -1134,9 +1281,86 @@ function setStatus(id,s) {
   // Usar atId si existe, sino el id directo (que puede ser el record ID de Airtable)
   const atId = entries[i].atId || entries[i].id;
   atUpdateStatus(atId, s).then(ok => {
-    if (ok) showToast({approved:'Aprobado ✓',rejected:'Rechazado',paid:'Marcado como pagado 💵'}[s]);
+    if (ok) { showToast({approved:'Aprobado ✓',rejected:'Rechazado',paid:'Marcado como pagado 💵'}[s]); atLoadSaldoGlobal(); }
     else showToast('⚠ No se pudo sincronizar estado', true);
   });
+}
+
+// ── DECISIÓN: ¿esta ausencia/atraso se descuenta o se da a recuperar? ─────────
+function decidirSaldo(id, decision) {
+  const i = entries.findIndex(e=>e.id===id);
+  let entry = i>=0 ? entries[i] : sinDefinirGlobal.find(e=>e.id===id);
+  if (!entry) return;
+  entry = { ...entry, saldoDecision: decision, saldoEstado: 'pendiente' };
+  if (i>=0) { entries[i] = entry; save(); renderHistorial(); }
+  const atId = entry.atId || entry.id;
+  atUpdateEntry(atId, entry).then(ok=>{
+    showToast(ok ? (decision==='descontar' ? '✓ Marcado para descuento' : '✓ Se dará opción de recuperar') : '⚠ No se pudo sincronizar', !ok);
+    if (ok) atLoadSaldoGlobal();
+  });
+}
+
+// ── Marcar un saldo pendiente como ya recuperado (jefe cumplió el tiempo) ─────
+function marcarRecuperado(id) {
+  const i = entries.findIndex(e=>e.id===id);
+  let entry = i>=0 ? entries[i] : Object.values(saldoPorTrabajador).flatMap(w=>w.pendientes).find(e=>e.id===id);
+  if (!entry) return;
+  if (!confirm(`¿Marcar como recuperadas las ${fmtH(entry.horas)} hrs de ${shortName(entry.trabajador)} (${entry.tipoExcepcion}, ${entry.fecha})?`)) return;
+  entry = { ...entry, saldoEstado: 'recuperado' };
+  if (i>=0) { entries[i] = entry; save(); renderHistorial(); }
+  const atId = entry.atId || entry.id;
+  atUpdateEntry(atId, entry).then(ok=>{
+    showToast(ok ? '✓ Marcado como recuperado' : '⚠ No se pudo sincronizar', !ok);
+    if (ok) atLoadSaldoGlobal();
+  });
+}
+
+// ── Panel: definiciones pendientes (descontar / recuperar) ───────────────────
+// Usa sinDefinirGlobal (todos los períodos) para no perder registros cuando pasa
+// el día 26 y el período actual rota.
+function renderDefiniciones() {
+  const el = document.getElementById('definicionesPendientes');
+  if (!el) return;
+  if (!sinDefinirGlobal.length) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">No hay registros esperando una definición.</p>`;
+    return;
+  }
+  el.innerHTML = sinDefinirGlobal.map(e => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--surface2);border-radius:10px;padding:11px 13px;margin-bottom:8px;">
+      <div style="min-width:0;">
+        <div style="font-weight:700;font-size:13.5px;">${shortName(e.trabajador)} <span class="tipo-badge">${e.tipoExcepcion}</span></div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">${e.local} · ${e.fecha} · ${fmtH(e.horas)} hrs</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        <button class="btn-mini" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:var(--red);padding:8px 12px;" onclick="decidirSaldo('${e.id}','descontar')">Descontar</button>
+        <button class="btn-mini" style="background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);color:var(--green);padding:8px 12px;" onclick="decidirSaldo('${e.id}','recuperar')">Dar a recuperar</button>
+      </div>
+    </div>`).join('');
+}
+
+// ── Panel: saldo de horas por recuperar (persiste entre períodos) ────────────
+function renderSaldoGlobal() {
+  const el = document.getElementById('saldoGlobalPanel');
+  if (!el) return;
+  const trabs = Object.entries(saldoPorTrabajador).filter(([,v])=>v.horas>0);
+  if (!trabs.length) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Nadie tiene saldo de horas por recuperar pendiente.</p>`;
+    return;
+  }
+  el.innerHTML = trabs.map(([nombre,v])=>`
+    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+        <div style="font-weight:700;font-size:14px;">${shortName(nombre)}<span style="font-weight:400;color:var(--muted);font-size:11.5px;"> · ${v.local}</span></div>
+        <div style="font-family:'DM Mono',monospace;font-size:17px;font-weight:700;color:var(--green);">${fmtH(v.horas)} hrs</div>
+      </div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+        ${v.pendientes.map(e=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);">
+            <span>${e.fecha} · ${e.tipoExcepcion} · ${fmtH(e.horas)} hrs</span>
+            <button class="btn-mini" style="background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.35);color:var(--accent);padding:5px 10px;font-size:11px;" onclick="marcarRecuperado('${e.id}')">Marcar recuperado</button>
+          </div>`).join('')}
+      </div>
+    </div>`).join('');
 }
 
 // ── CSV ───────────────────────────────────────────────────────────────────────
