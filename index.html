@@ -297,7 +297,7 @@
           <textarea id="fObservacion" rows="2" placeholder="Detalle adicional si es necesario..."></textarea>
         </div>
         <div id="editingBanner" class="editing-banner" style="display:none;">
-          <span>✎ Editando un registro pendiente</span>
+          <span id="editingBannerTxt">✎ Editando un registro pendiente</span>
           <button onclick="cancelEdit()">Cancelar edición</button>
         </div>
         <button class="btn-save" id="btnGuardar" onclick="saveEntry()">Guardar registro</button>
@@ -310,6 +310,17 @@
     <div class="history-list" id="historialList">
       <div class="empty"><div class="icon">📋</div>Sin registros este mes.</div>
     </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Resumen por persona</div>
+    <div id="reporteDetalladoJefe"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Marcar horas ya recuperadas</div>
+    <p style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">Cuando alguien ya cumplió el tiempo que quedó debiendo, márcalo aquí para que baje del saldo pendiente.</p>
+    <div id="saldoGlobalPanelJefe"></div>
   </div>
 </div>
 
@@ -992,19 +1003,22 @@ function saveEntry() {
   const vh = (tipoExcepcion === 'Hora Extra') ? (valorHoraPor(trabajador) || 0) : 0;
 
   if (editingId) {
-    // ── Modo edición: solo permitido si el registro sigue pendiente ──────────
+    // ── Modo edición: el jefe solo llega acá si está pendiente (el botón no
+    // aparece para otros estados); la administradora puede editar siempre,
+    // cualquier estado, sin que esto reinicie la aprobación/rechazo/pago. ──
     const idx = entries.findIndex(e => e.id === editingId);
-    if (idx < 0 || entries[idx].estado !== 'pending') {
-      showToast('⚠ Este registro ya no se puede editar (fue aprobado/rechazado)', true);
+    if (idx < 0) {
+      showToast('⚠ No se encontró el registro', true);
       liberarBoton(); cancelEdit(); return;
     }
     const atId = entries[idx].atId || entries[idx].id;
     const updated = { ...entries[idx], fecha, local, trabajador, desde:info.requiereHoras?desde:'', hasta:info.requiereHoras?hasta:'',
       horas, valorHora:vh, comentario, observacion, tipoExcepcion, clasificacion };
     entries[idx] = updated;
-    save(); updateBanner(); renderHistorial();
+    save(); updateBanner(); renderHistorial(); renderAdmin();
     atUpdateEntry(atId, updated).then(ok => {
       showToast(ok ? '✓ Registro actualizado' : '⚠ No se pudo sincronizar la edición', !ok);
+      if (ok) atLoadSaldoGlobal();
       liberarBoton();
     }).catch(err => { showToast('⚠ Error Airtable: ' + err.message, true); liberarBoton(); });
     cancelEdit();
@@ -1040,11 +1054,21 @@ function saveEntry() {
   showToast('✓ Registro guardado');
 }
 
-// ── EDITAR / ELIMINAR (jefe, solo mientras el registro está pendiente) ────────
+// ── EDITAR / ELIMINAR ──────────────────────────────────────────────────────────
+// El jefe solo ve el botón Editar cuando el registro está pendiente (así está
+// armada la vista Jefe). La administradora puede editar cualquier registro en
+// cualquier estado — por ejemplo cuando el jefe se equivocó o no puso horario y
+// el registro quedó en 0 horas sin que nadie lo notara hasta después de aprobar.
+let editingFromAdmin = false;
+function editAsAdmin(id) {
+  editingFromAdmin = true;
+  switchView('jefe');
+  editEntry(id);
+}
+
 function editEntry(id) {
   const e = entries.find(x => x.id === id);
   if (!e) return;
-  if (e.estado !== 'pending') { showToast('⚠ Solo se pueden editar registros pendientes', true); return; }
 
   editingId = id;
   document.getElementById('cfgLocal').value = e.local;
@@ -1072,6 +1096,9 @@ function editEntry(id) {
   document.getElementById('fObservacion').value = e.observacion || '';
 
   document.getElementById('editingBanner').style.display = 'flex';
+  document.getElementById('editingBannerTxt').textContent = editingFromAdmin
+    ? `✎ Editando registro (estado actual: ${STATUS_LABEL[e.estado]}) — como administradora`
+    : '✎ Editando un registro pendiente';
   document.getElementById('btnGuardar').textContent = 'Guardar cambios';
   document.querySelector('.section .form-card')?.scrollIntoView({behavior:'smooth', block:'start'});
 }
@@ -1088,6 +1115,7 @@ function cancelEdit() {
   document.getElementById('workerInfoBox').style.display='none';
   document.getElementById('otroBox').style.display='none';
   document.getElementById('fFecha').value = today();
+  if (editingFromAdmin) { editingFromAdmin = false; switchView('admin'); }
 }
 
 function deleteEntry(id) {
@@ -1174,9 +1202,11 @@ function renderAdmin() {
     <div class="summary-card"><div class="sc-val" style="color:var(--red)">${fmtCLP(montoPagar)}</div><div class="sc-lbl">Monto a pagar</div></div>
     <div class="summary-card"><div class="sc-val" style="color:var(--yellow)">${pendientes}</div><div class="sc-lbl">Pendientes</div></div>`;
 
-  renderResumenPorTrabajador(list);
+  renderResumenPorTrabajador(list, 'reporteDetallado');
+  renderResumenPorTrabajador(entries, 'reporteDetalladoJefe');
   renderDefiniciones();
-  renderSaldoGlobal();
+  renderSaldoGlobal('saldoGlobalPanel');
+  renderSaldoGlobal('saldoGlobalPanelJefe');
 
   const container = document.getElementById('adminCards');
   if (!list.length) {
@@ -1221,6 +1251,7 @@ function renderAdmin() {
       </div>` : ''}
       ${isApproved ? `
       <button onclick="setStatus('${e.id}','paid')" style="width:100%;padding:11px;background:rgba(79,142,247,.15);border:1px solid rgba(79,142,247,.4);border-radius:10px;color:var(--accent);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;">💵 Marcar como pagado</button>` : ''}
+      <button onclick="editAsAdmin('${e.id}')" style="width:100%;padding:9px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;margin-top:6px;">✎ Editar registro${!isPending?' (aunque ya esté '+STATUS_LABEL[e.estado].toLowerCase()+')':''}</button>
     </div>`;
   }).join('');
 }
@@ -1229,8 +1260,8 @@ function renderAdmin() {
 // "A pagar" es del período filtrado (con recargo legal). "Descontado / Por
 // recuperar / Recuperado" son acumulados históricos: no se resetean el día 26,
 // se arrastran hasta que tú los marcas como recuperados.
-function renderResumenPorTrabajador(list) {
-  const el = document.getElementById('reporteDetallado');
+function renderResumenPorTrabajador(list, targetId) {
+  const el = document.getElementById(targetId || 'reporteDetallado');
   if (!el) return;
 
   const pagarPorTrabajador = {};
@@ -1361,8 +1392,8 @@ function renderDefiniciones() {
 }
 
 // ── Panel utilitario: marcar tramos "por recuperar" como ya recuperados ──────
-function renderSaldoGlobal() {
-  const el = document.getElementById('saldoGlobalPanel');
+function renderSaldoGlobal(targetId) {
+  const el = document.getElementById(targetId || 'saldoGlobalPanel');
   if (!el) return;
   const trabs = Object.entries(resumenPorTrabajador).filter(([,v])=>v.pendiente.horas>0);
   if (!trabs.length) {
