@@ -353,23 +353,23 @@
       <div style="padding:14px 16px;" id="definicionesPendientes"></div>
     </div>
 
-    <!-- SALDO DE HORAS POR RECUPERAR (no se resetea el 26) -->
+    <!-- RESUMEN CLARO POR PERSONA: pagar / descontado / por recuperar / recuperado -->
     <div class="table-wrap" style="margin-bottom:18px;">
       <div class="table-header">
-        <h3>Saldo de horas por recuperar</h3>
-      </div>
-      <div style="padding:14px 16px;">
-        <p style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">Este saldo no se reinicia el día 26 — se mantiene como cuenta corriente hasta marcar cada tramo como recuperado.</p>
-        <div id="saldoGlobalPanel"></div>
-      </div>
-    </div>
-
-    <!-- REPORTE DETALLADO: PAGAR VS RECUPERAR -->
-    <div class="table-wrap" style="margin-bottom:18px;">
-      <div class="table-header">
-        <h3>Reporte detallado — horas a pagar vs. horas a recuperar</h3>
+        <h3>Resumen por persona</h3>
       </div>
       <div style="padding:14px 16px;" id="reporteDetallado"></div>
+    </div>
+
+    <!-- UTILIDAD: marcar tramos "por recuperar" como ya recuperados -->
+    <div class="table-wrap" style="margin-bottom:18px;">
+      <div class="table-header">
+        <h3>Marcar horas ya recuperadas</h3>
+      </div>
+      <div style="padding:14px 16px;">
+        <p style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">Cuando una trabajadora ya cumplió el tiempo que quedó debiendo, márcalo aquí para que baje del saldo pendiente. Esto no se reinicia el día 26.</p>
+        <div id="saldoGlobalPanel"></div>
+      </div>
     </div>
 
     <!-- CIERRE MES -->
@@ -581,11 +581,11 @@ async function atLoadEntries() {
   }
 }
 
-// ── Cargar TODOS los registros (todos los períodos) solo para el saldo ────────
-// El saldo de "horas a recuperar" no se resetea el 26 de cada mes: se mantiene
-// como una cuenta corriente hasta que se marca como recuperada, por eso necesita
-// mirar el historial completo y no solo el período actual.
-let saldoPorTrabajador = {}; // { nombre: { horas: n, pendientes:[entry,...] } }
+// ── Cargar TODOS los registros (todos los períodos) para el resumen por persona ─
+// Los saldos (descontado / por recuperar / recuperado) no se resetean el 26 de
+// cada mes: se mantienen como cuenta corriente, por eso miran el historial
+// completo y no solo el período actual.
+let resumenPorTrabajador = {}; // { nombre: { local, descontado:{horas,count}, pendiente:{horas,count,entries}, recuperado:{horas,count} } }
 let sinDefinirGlobal = []; // registros 'debe' aprobados/pagados de CUALQUIER período que aún no tienen decisión
 async function atLoadSaldoGlobal() {
   try {
@@ -602,17 +602,25 @@ async function atLoadSaldoGlobal() {
     } while (offset);
 
     const todas = records.map(r => atRecordToEntry(r));
-    saldoPorTrabajador = {};
+    resumenPorTrabajador = {};
     sinDefinirGlobal = [];
+    const ensure = (nombre, local) => {
+      if (!resumenPorTrabajador[nombre]) resumenPorTrabajador[nombre] = {
+        local, descontado:{horas:0,count:0}, pendiente:{horas:0,count:0,entries:[]}, recuperado:{horas:0,count:0}
+      };
+      return resumenPorTrabajador[nombre];
+    };
     todas.forEach(e => {
       if (!(e.estado==='approved' || e.estado==='paid')) return;
       if (valorTipoDe(e) !== 'debe') return;
       if (!e.saldoDecision) { sinDefinirGlobal.push(e); return; }
-      if (e.saldoDecision !== 'recuperar') return;
-      if (!saldoPorTrabajador[e.trabajador]) saldoPorTrabajador[e.trabajador] = { local:e.local, horas:0, pendientes:[] };
-      if (e.saldoEstado === 'pendiente') {
-        saldoPorTrabajador[e.trabajador].horas += e.horas;
-        saldoPorTrabajador[e.trabajador].pendientes.push(e);
+      const w = ensure(e.trabajador, e.local);
+      if (e.saldoDecision === 'descontar') {
+        w.descontado.horas += e.horas; w.descontado.count++;
+      } else if (e.saldoDecision === 'recuperar' && e.saldoEstado === 'pendiente') {
+        w.pendiente.horas += e.horas; w.pendiente.count++; w.pendiente.entries.push(e);
+      } else if (e.saldoDecision === 'recuperar' && e.saldoEstado === 'recuperado') {
+        w.recuperado.horas += e.horas; w.recuperado.count++;
       }
     });
     renderAdmin();
@@ -620,7 +628,6 @@ async function atLoadSaldoGlobal() {
     console.error('atLoadSaldoGlobal error', e);
   }
 }
-
 
 function atRecordToEntry(r) {
   const f = r.fields;
@@ -1167,7 +1174,7 @@ function renderAdmin() {
     <div class="summary-card"><div class="sc-val" style="color:var(--red)">${fmtCLP(montoPagar)}</div><div class="sc-lbl">Monto a pagar</div></div>
     <div class="summary-card"><div class="sc-val" style="color:var(--yellow)">${pendientes}</div><div class="sc-lbl">Pendientes</div></div>`;
 
-  renderReporteDetallado(list);
+  renderResumenPorTrabajador(list);
   renderDefiniciones();
   renderSaldoGlobal();
 
@@ -1218,60 +1225,75 @@ function renderAdmin() {
   }).join('');
 }
 
-// ── REPORTE DETALLADO: pagar vs. recuperar, por trabajador ────────────────────
-// Solo se cuentan registros aprobados o pagados (los pendientes y rechazados no
-// afectan el reporte). Las horas "a pagar" y "a recuperar" NO se netean en dinero
-// porque no valen lo mismo: una es costo real (recargo legal), la otra es tiempo
-// que el trabajador compensa después. El neto en horas es solo referencial.
-function renderReporteDetallado(list) {
+// ── RESUMEN POR TRABAJADOR: vista clara consolidada ────────────────────────────
+// "A pagar" es del período filtrado (con recargo legal). "Descontado / Por
+// recuperar / Recuperado" son acumulados históricos: no se resetean el día 26,
+// se arrastran hasta que tú los marcas como recuperados.
+function renderResumenPorTrabajador(list) {
   const el = document.getElementById('reporteDetallado');
   if (!el) return;
-  const relevantes = list.filter(e => e.estado==='approved' || e.estado==='paid');
-  if (!relevantes.length) {
-    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Sin registros aprobados o pagados con estos filtros.</p>`;
+
+  const pagarPorTrabajador = {};
+  list.filter(e => (e.estado==='approved'||e.estado==='paid') && valorTipoDe(e)==='pagar').forEach(e=>{
+    if (!pagarPorTrabajador[e.trabajador]) pagarPorTrabajador[e.trabajador] = { local:e.local, horas:0, monto:0 };
+    pagarPorTrabajador[e.trabajador].horas += e.horas;
+    pagarPorTrabajador[e.trabajador].monto += e.horas*(e.valorHora||0);
+  });
+
+  const nombres = new Set([...Object.keys(pagarPorTrabajador), ...Object.keys(resumenPorTrabajador)]);
+  if (!nombres.size) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Sin actividad registrada todavía.</p>`;
     return;
   }
-  const byW = {};
-  relevantes.forEach(e=>{
-    if (!byW[e.trabajador]) byW[e.trabajador] = { local:e.local, pagar:0, monto:0, debe:0 };
-    const vt = valorTipoDe(e);
-    if (vt==='pagar') { byW[e.trabajador].pagar += e.horas; byW[e.trabajador].monto += e.horas*(e.valorHora||0); }
-    else if (vt==='debe') { byW[e.trabajador].debe += e.horas; }
-  });
 
   const locales = ['Pajaritos','Plaza Oeste'];
-  let html = `<table class="reporte-table"><thead><tr>
-    <th style="text-align:left">Trabajador</th>
-    <th>Hrs a pagar</th><th>Monto a pagar</th>
-    <th>Hrs a recuperar</th><th>Neto (hrs)</th>
-  </tr></thead><tbody>`;
+  let html = '';
+  let totPagarH=0, totPagarM=0, totDescH=0, totPendH=0, totRecH=0;
 
-  let totPagar=0, totMonto=0, totDebe=0;
   locales.forEach(local=>{
-    const rows = Object.entries(byW).filter(([,v])=>v.local===local && (v.pagar>0||v.debe>0));
-    if (!rows.length) return;
-    html += `<tr><td colspan="5" class="reporte-section">${local}</td></tr>`;
-    rows.forEach(([nombre,v])=>{
-      const neto = v.pagar - v.debe;
-      totPagar+=v.pagar; totMonto+=v.monto; totDebe+=v.debe;
-      html += `<tr>
-        <td>${shortName(nombre)}</td>
-        <td style="color:var(--red)">${v.pagar?fmtH(v.pagar):'—'}</td>
-        <td style="color:var(--red)">${v.monto?fmtCLP(v.monto):'—'}</td>
-        <td style="color:var(--green)">${v.debe?fmtH(v.debe):'—'}</td>
-        <td style="color:${neto>=0?'var(--red)':'var(--green)'}">${neto>=0?'+':''}${fmtH(neto)}</td>
-      </tr>`;
+    const nombresLocal = [...nombres].filter(n => (pagarPorTrabajador[n]?.local || resumenPorTrabajador[n]?.local) === local);
+    if (!nombresLocal.length) return;
+    html += `<div class="reporte-section" style="border-radius:8px;padding:7px 10px;margin:14px 0 8px;">${local}</div>`;
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">`;
+    nombresLocal.sort().forEach(nombre=>{
+      const p = pagarPorTrabajador[nombre] || {horas:0,monto:0};
+      const r = resumenPorTrabajador[nombre] || {descontado:{horas:0},pendiente:{horas:0},recuperado:{horas:0}};
+      totPagarH+=p.horas; totPagarM+=p.monto; totDescH+=r.descontado.horas; totPendH+=r.pendiente.horas; totRecH+=r.recuperado.horas;
+      html += `
+        <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+          <div style="font-weight:700;font-size:14px;margin-bottom:10px;">${shortName(nombre)}</div>
+          <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;">
+              <span style="color:var(--muted);">A pagar (este período)</span>
+              <span style="color:var(--red);font-weight:700;">${p.horas?fmtH(p.horas):'—'}</span>
+            </div>
+            ${p.monto?`<div style="display:flex;justify-content:flex-end;margin-top:-5px;"><span style="color:var(--red);font-size:11px;opacity:.85;">${fmtCLP(p.monto)}</span></div>`:''}
+            <div style="display:flex;justify-content:space-between;">
+              <span style="color:var(--muted);">Descontado (histórico)</span>
+              <span style="font-weight:600;">${r.descontado.horas?fmtH(r.descontado.horas):'—'}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;">
+              <span style="color:var(--muted);">Por recuperar (pendiente)</span>
+              <span style="color:var(--green);font-weight:700;">${r.pendiente.horas?fmtH(r.pendiente.horas):'—'}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;">
+              <span style="color:var(--muted);">Ya recuperado</span>
+              <span style="color:var(--accent);font-weight:600;">${r.recuperado.horas?fmtH(r.recuperado.horas):'—'}</span>
+            </div>
+          </div>
+        </div>`;
     });
+    html += `</div>`;
   });
-  html += `<tr class="reporte-total-row">
-    <td>Total</td>
-    <td style="color:var(--red)">${fmtH(totPagar)}</td>
-    <td style="color:var(--red)">${fmtCLP(totMonto)}</td>
-    <td style="color:var(--green)">${fmtH(totDebe)}</td>
-    <td>${(totPagar-totDebe)>=0?'+':''}${fmtH(totPagar-totDebe)}</td>
-  </tr>`;
-  html += `</tbody></table>`;
-  html += `<div class="neto-note">⚠ El "neto en horas" es solo referencial — <strong>no equivale a dinero</strong>. Las horas a pagar tienen recargo legal (150%); las horas a recuperar son tiempo que la trabajadora compensa después, sin costo asociado. Úsalo para ver de un vistazo quién tiene más horas trabajadas de más que por recuperar, no para calcular pagos.</div>`;
+
+  html += `
+    <div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:12.5px;">
+      <div><span style="color:var(--muted);">Total a pagar </span><b style="color:var(--red)">${fmtH(totPagarH)} · ${fmtCLP(totPagarM)}</b></div>
+      <div><span style="color:var(--muted);">Total descontado </span><b>${fmtH(totDescH)}</b></div>
+      <div><span style="color:var(--muted);">Total por recuperar </span><b style="color:var(--green)">${fmtH(totPendH)}</b></div>
+      <div><span style="color:var(--muted);">Total recuperado </span><b style="color:var(--accent)">${fmtH(totRecH)}</b></div>
+    </div>
+    <div class="neto-note">⚠ "A pagar" corresponde al período filtrado arriba (con recargo legal). "Descontado / Por recuperar / Recuperado" son acumulados de todo el historial — no se resetean el día 26, se arrastran hasta que marcas cada tramo como recuperado.</div>`;
   el.innerHTML = html;
 }
 
@@ -1303,7 +1325,7 @@ function decidirSaldo(id, decision) {
 // ── Marcar un saldo pendiente como ya recuperado (jefe cumplió el tiempo) ─────
 function marcarRecuperado(id) {
   const i = entries.findIndex(e=>e.id===id);
-  let entry = i>=0 ? entries[i] : Object.values(saldoPorTrabajador).flatMap(w=>w.pendientes).find(e=>e.id===id);
+  let entry = i>=0 ? entries[i] : Object.values(resumenPorTrabajador).flatMap(w=>w.pendiente.entries).find(e=>e.id===id);
   if (!entry) return;
   if (!confirm(`¿Marcar como recuperadas las ${fmtH(entry.horas)} hrs de ${shortName(entry.trabajador)} (${entry.tipoExcepcion}, ${entry.fecha})?`)) return;
   entry = { ...entry, saldoEstado: 'recuperado' };
@@ -1338,23 +1360,23 @@ function renderDefiniciones() {
     </div>`).join('');
 }
 
-// ── Panel: saldo de horas por recuperar (persiste entre períodos) ────────────
+// ── Panel utilitario: marcar tramos "por recuperar" como ya recuperados ──────
 function renderSaldoGlobal() {
   const el = document.getElementById('saldoGlobalPanel');
   if (!el) return;
-  const trabs = Object.entries(saldoPorTrabajador).filter(([,v])=>v.horas>0);
+  const trabs = Object.entries(resumenPorTrabajador).filter(([,v])=>v.pendiente.horas>0);
   if (!trabs.length) {
-    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Nadie tiene saldo de horas por recuperar pendiente.</p>`;
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Nadie tiene tramos pendientes por marcar como recuperados.</p>`;
     return;
   }
   el.innerHTML = trabs.map(([nombre,v])=>`
     <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
         <div style="font-weight:700;font-size:14px;">${shortName(nombre)}<span style="font-weight:400;color:var(--muted);font-size:11.5px;"> · ${v.local}</span></div>
-        <div style="font-family:'DM Mono',monospace;font-size:17px;font-weight:700;color:var(--green);">${fmtH(v.horas)} hrs</div>
+        <div style="font-family:'DM Mono',monospace;font-size:17px;font-weight:700;color:var(--green);">${fmtH(v.pendiente.horas)} hrs</div>
       </div>
       <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
-        ${v.pendientes.map(e=>`
+        ${v.pendiente.entries.map(e=>`
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);">
             <span>${e.fecha} · ${e.tipoExcepcion} · ${fmtH(e.horas)} hrs</span>
             <button class="btn-mini" style="background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.35);color:var(--accent);padding:5px 10px;font-size:11px;" onclick="marcarRecuperado('${e.id}')">Marcar recuperado</button>
