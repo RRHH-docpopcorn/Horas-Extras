@@ -628,10 +628,11 @@ async function atLoadSaldoGlobal() {
       const w = ensure(e.trabajador, e.local);
       if (e.saldoDecision === 'descontar') {
         w.descontado.horas += e.horas; w.descontado.count++;
-      } else if (e.saldoDecision === 'recuperar' && e.saldoEstado === 'pendiente') {
-        w.pendiente.horas += e.horas; w.pendiente.count++; w.pendiente.entries.push(e);
-      } else if (e.saldoDecision === 'recuperar' && e.saldoEstado === 'recuperado') {
-        w.recuperado.horas += e.horas; w.recuperado.count++;
+      } else if (e.saldoDecision === 'recuperar') {
+        const recuperadas = Math.min(e.horasRecuperadas||0, e.horas);
+        const restante = Math.max(0, e.horas - recuperadas);
+        if (recuperadas > 0.001) { w.recuperado.horas += recuperadas; w.recuperado.count++; }
+        if (restante > 0.001) { w.pendiente.horas += restante; w.pendiente.count++; w.pendiente.entries.push({ ...e, restante }); }
       }
     });
     renderAdmin();
@@ -659,6 +660,7 @@ function atRecordToEntry(r) {
     desde:      f['Desde']      || '',
     hasta:      f['Hasta']      || '',
     horas:      f['Horas']      || 0,
+    horasRecuperadas: f['Horas recuperadas'] || 0,
     valorHora:  f['Valor Hora'] || 0,
     comentario: f['Comentario'] || '',
     observacion: obsLimpia,
@@ -762,6 +764,7 @@ function entryToAtFields(e) {
     'Desde':         e.desde,
     'Hasta':         e.hasta,
     'Horas':         e.horas,
+    'Horas recuperadas': e.horasRecuperadas || 0,
     'Valor Hora':    e.valorHora || 0,
     'Comentario':    e.comentario || '',
     'Observación':   e.observacion || '',
@@ -1271,7 +1274,14 @@ function renderResumenPorTrabajador(list, targetId) {
     pagarPorTrabajador[e.trabajador].monto += e.horas*(e.valorHora||0);
   });
 
-  const nombres = new Set([...Object.keys(pagarPorTrabajador), ...Object.keys(resumenPorTrabajador)]);
+  // Solo aparece quien tiene algo VIGENTE: horas a pagar este período, o un saldo
+  // pendiente por recuperar. Si alguien ya recuperó todo (o solo tiene historial
+  // de descuentos), deja de mostrarse el mes siguiente para no generar confusión
+  // con datos que ya están resueltos.
+  const nombresConPendiente = Object.entries(resumenPorTrabajador)
+    .filter(([,v]) => v.pendiente.horas > 0.001)
+    .map(([n]) => n);
+  const nombres = new Set([...Object.keys(pagarPorTrabajador), ...nombresConPendiente]);
   if (!nombres.size) {
     el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Sin actividad registrada todavía.</p>`;
     return;
@@ -1354,16 +1364,30 @@ function decidirSaldo(id, decision) {
 }
 
 // ── Marcar un saldo pendiente como ya recuperado (jefe cumplió el tiempo) ─────
-function marcarRecuperado(id) {
+function marcarRecuperado(id, targetId) {
+  const tid = targetId || 'saldoGlobalPanel';
+  const listaConRestante = Object.values(resumenPorTrabajador).flatMap(w=>w.pendiente.entries);
+  const orig = listaConRestante.find(e=>e.id===id);
   const i = entries.findIndex(e=>e.id===id);
-  let entry = i>=0 ? entries[i] : Object.values(resumenPorTrabajador).flatMap(w=>w.pendiente.entries).find(e=>e.id===id);
-  if (!entry) return;
-  if (!confirm(`¿Marcar como recuperadas las ${fmtH(entry.horas)} hrs de ${shortName(entry.trabajador)} (${entry.tipoExcepcion}, ${entry.fecha})?`)) return;
-  entry = { ...entry, saldoEstado: 'recuperado' };
-  if (i>=0) { entries[i] = entry; save(); renderHistorial(); }
-  const atId = entry.atId || entry.id;
-  atUpdateEntry(atId, entry).then(ok=>{
-    showToast(ok ? '✓ Marcado como recuperado' : '⚠ No se pudo sincronizar', !ok);
+  const base = i>=0 ? entries[i] : orig;
+  if (!base) return;
+
+  const restante = orig ? orig.restante : (base.horas - (base.horasRecuperadas||0));
+  const inputEl = document.getElementById(`recInput-${tid}-${id}`);
+  const val = inputEl ? parseFloat(String(inputEl.value).replace(',','.')) : restante;
+  if (isNaN(val) || val <= 0) { showToast('⚠ Ingresa un número de horas válido', true); return; }
+  const abono = Math.min(val, restante);
+  const nuevasRecuperadas = (base.horasRecuperadas||0) + abono;
+  const completo = nuevasRecuperadas >= base.horas - 0.001;
+  const restanteFinal = Math.max(0, base.horas - nuevasRecuperadas);
+
+  if (!confirm(`¿Marcar ${fmtH(abono)} hrs recuperadas para ${shortName(base.trabajador)} (${base.tipoExcepcion}, ${base.fecha})?${completo ? '\n(queda completo, sin saldo pendiente)' : `\n(quedarán ${fmtH(restanteFinal)} hrs pendientes)`}`)) return;
+
+  const updated = { ...base, horasRecuperadas: nuevasRecuperadas, saldoEstado: completo ? 'recuperado' : 'pendiente' };
+  if (i>=0) { entries[i] = updated; save(); renderHistorial(); }
+  const atId = updated.atId || updated.id;
+  atUpdateEntry(atId, updated).then(ok=>{
+    showToast(ok ? '✓ Registrado' : '⚠ No se pudo sincronizar', !ok);
     if (ok) atLoadSaldoGlobal();
   });
 }
@@ -1392,8 +1416,11 @@ function renderDefiniciones() {
 }
 
 // ── Panel utilitario: marcar tramos "por recuperar" como ya recuperados ──────
+// Permite abonar parcialmente: si alguien debe 8 hrs, se puede marcar 3 hoy y
+// el resto queda pendiente para más adelante.
 function renderSaldoGlobal(targetId) {
-  const el = document.getElementById(targetId || 'saldoGlobalPanel');
+  const tid = targetId || 'saldoGlobalPanel';
+  const el = document.getElementById(tid);
   if (!el) return;
   const trabs = Object.entries(resumenPorTrabajador).filter(([,v])=>v.pendiente.horas>0);
   if (!trabs.length) {
@@ -1406,12 +1433,19 @@ function renderSaldoGlobal(targetId) {
         <div style="font-weight:700;font-size:14px;">${shortName(nombre)}<span style="font-weight:400;color:var(--muted);font-size:11.5px;"> · ${v.local}</span></div>
         <div style="font-family:'DM Mono',monospace;font-size:17px;font-weight:700;color:var(--green);">${fmtH(v.pendiente.horas)} hrs</div>
       </div>
-      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
-        ${v.pendiente.entries.map(e=>`
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);">
-            <span>${e.fecha} · ${e.tipoExcepcion} · ${fmtH(e.horas)} hrs</span>
-            <button class="btn-mini" style="background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.35);color:var(--accent);padding:5px 10px;font-size:11px;" onclick="marcarRecuperado('${e.id}')">Marcar recuperado</button>
-          </div>`).join('')}
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">
+        ${v.pendiente.entries.map(e=>{
+          const yaRec = e.horasRecuperadas||0;
+          return `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);flex-wrap:wrap;">
+            <span>${e.fecha} · ${e.tipoExcepcion} · debe ${fmtH(e.horas)}${yaRec>0?` (ya abonó ${fmtH(yaRec)}, restan ${fmtH(e.restante)})`:''}</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input type="number" step="0.25" min="0.25" max="${e.restante}" value="${e.restante}" id="recInput-${tid}-${e.id}"
+                style="width:64px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px;font-family:inherit;">
+              <button class="btn-mini" style="background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.35);color:var(--accent);padding:6px 10px;font-size:11px;white-space:nowrap;" onclick="marcarRecuperado('${e.id}','${tid}')">Marcar</button>
+            </div>
+          </div>`;
+        }).join('')}
       </div>
     </div>`).join('');
 }
