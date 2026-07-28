@@ -458,30 +458,29 @@ function valorHoraPor(nombre) {
 // ── TIPOS DE EXCEPCIÓN ─────────────────────────────────────────────────────────
 // valorBase: cómo se trata este tipo por defecto —
 //   'pagar'  = genera costo para la empresa (horas extra, se paga con recargo)
-//   'debe'   = el trabajador queda debiendo horas (se recuperan, no se pagan)
+//   'debe'   = el trabajador queda debiendo horas (elegible para Descontar/Recuperar en Admin)
 //   'neutro' = informativo, sin efecto en horas ni dinero
-// permiteHorasManual: para tipos sin horario (día completo), permite ingresar
-// horas a recuperar manualmente. Si se dejan en 0, el registro queda 'neutro'.
+// Todos los tipos exigen Desde/Hasta — no se puede guardar sin horario.
 const TIPOS_EXCEPCION = [
-  { v:'Hora Extra',            requiereHoras:true,  permiteHorasManual:false, valorBase:'pagar',
+  { v:'Hora Extra',            requiereHoras:true, valorBase:'pagar',
     nota:'Registra el rango exacto (desde–hasta) trabajado fuera del horario normal. El sistema calcula las horas y el monto a pagar automáticamente, con recargo legal.' },
-  { v:'Atraso',                requiereHoras:true,  permiteHorasManual:false, valorBase:'debe',
+  { v:'Atraso',                requiereHoras:true, valorBase:'debe',
     nota:'Recuerda registrar el rango del atraso (desde–hasta), para cuantificar cuántas horas queda al debe la trabajadora. Esto no genera pago, es tiempo que se recupera.' },
-  { v:'Salida Anticipada',     requiereHoras:true,  permiteHorasManual:false, valorBase:'debe',
+  { v:'Salida Anticipada',     requiereHoras:true, valorBase:'debe',
     nota:'Registra el rango desde que se retiró hasta el término de su turno programado, para cuantificar cuántas horas queda al debe. No genera pago, es tiempo a recuperar.' },
-  { v:'Reemplazo/Cobertura',   requiereHoras:false, permiteHorasManual:false, valorBase:'neutro',
-    nota:'Este registro es solo informativo: no genera horas a pagar ni a recuperar. Úsalo para dejar constancia de quién cubrió a quién y por qué.' },
-  { v:'Licencia',              requiereHoras:false, permiteHorasManual:true,  valorBase:'neutro',
+  { v:'Reemplazo/Cobertura',   requiereHoras:true, valorBase:'neutro',
+    nota:'Registra el rango (desde–hasta) del turno cubierto, para que quede cuantificado. Por ahora no genera pago ni deuda automáticamente — solo queda la constancia de las horas y de quién cubrió a quién.' },
+  { v:'Licencia',              requiereHoras:false, permiteHorasManual:true, valorBase:'neutro',
     nota:'' },
-  { v:'Ausencia sin Licencia', requiereHoras:false, permiteHorasManual:true,  valorBase:'debe',
-    nota:'Si dejas "Horas a recuperar" vacío, este registro queda solo informativo. Si indicas horas, quedan registradas como horas que la trabajadora debe recuperar.' },
+  { v:'Ausencia sin Licencia', requiereHoras:true, valorBase:'debe',
+    nota:'Registra el rango (desde–hasta) que estuvo ausente, para cuantificar las horas. Queda disponible en Admin para decidir si se descuenta o si se recupera después.' },
 ];
 let tipoSeleccionado = TIPOS_EXCEPCION[0].v;
 function tipoInfo(v){ return TIPOS_EXCEPCION.find(t=>t.v===v) || TIPOS_EXCEPCION[0]; }
 
 // ── CATEGORÍA DE VALOR DE UN REGISTRO ───────────────────────────────────────────
-// Para Licencia / Ausencia sin Licencia: solo cuentan como "debe" si tienen
-// horas a recuperar cargadas (>0). Si no, quedan neutras (solo informativas).
+// Licencia es el único tipo con horas opcionales: solo cuenta como "debe" si se
+// cargaron horas a recuperar (>0); si no, queda neutra (solo informativa).
 function valorTipoDe(e) {
   const info = tipoInfo(e.tipoExcepcion || 'Hora Extra');
   if (info.permiteHorasManual) return (e.horas > 0) ? 'debe' : 'neutro';
@@ -1013,7 +1012,7 @@ function saveEntry() {
 
   let horas = 0;
   if (info.requiereHoras) {
-    if (!desde||!hasta) { showToast('⚠ Este tipo de excepción requiere hora de inicio y término',true); liberarBoton(); return; }
+    if (!desde||!hasta) { showToast('⚠ Falta el horario: ingresa Desde y Hasta antes de guardar',true); liberarBoton(); return; }
     const [dh,dm]=desde.split(':').map(Number),[hh,hm]=hasta.split(':').map(Number);
     const mins=(hh*60+hm)-(dh*60+dm);
     if (mins<=0) { showToast('⚠ Hora término debe ser mayor al inicio',true); liberarBoton(); return; }
