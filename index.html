@@ -331,6 +331,17 @@
     <!-- RESUMEN RÁPIDO -->
     <div class="summary-cards" id="summaryCards" style="margin-bottom:14px;"></div>
 
+    <!-- SELECTOR DE MES: consultar períodos anteriores (solo lectura) -->
+    <div class="filters-row" style="margin-bottom:8px;">
+      <select id="filMesConsulta" onchange="onMesConsultaChange()" style="font-weight:700;">
+        <option value="">Mes actual (en vivo)</option>
+      </select>
+    </div>
+    <div id="consultaBanner" class="editing-banner" style="display:none;margin-bottom:14px;">
+      <span id="consultaBannerTxt">📅 Modo consulta — solo lectura</span>
+      <button onclick="volverMesActual()">Volver al mes actual</button>
+    </div>
+
     <!-- FILTROS -->
     <div class="filters-row">
       <select id="aFiltroLocal" onchange="renderAdmin()">
@@ -357,7 +368,7 @@
     <div id="adminCards" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;"></div>
 
     <!-- DEFINICIONES: ¿se descuenta o se da a recuperar? -->
-    <div class="table-wrap" style="margin-bottom:18px;">
+    <div class="table-wrap" style="margin-bottom:18px;" id="wrapDefiniciones">
       <div class="table-header">
         <h3>Definiciones pendientes — ¿se descuenta o se recupera?</h3>
       </div>
@@ -365,15 +376,23 @@
     </div>
 
     <!-- RESUMEN CLARO POR PERSONA: pagar / descontado / por recuperar / recuperado -->
-    <div class="table-wrap" style="margin-bottom:18px;">
+    <div class="table-wrap" style="margin-bottom:18px;" id="wrapResumenPersona">
       <div class="table-header">
-        <h3>Resumen por persona</h3>
+        <h3 id="tituloResumenPersona">Resumen por persona</h3>
       </div>
       <div style="padding:14px 16px;" id="reporteDetallado"></div>
     </div>
 
+    <!-- TABLA HISTÓRICA (solo aparece en modo consulta) -->
+    <div class="table-wrap" style="margin-bottom:18px;display:none;" id="wrapTablaHistorica">
+      <div class="table-header">
+        <h3>Registros del período consultado</h3>
+      </div>
+      <div style="padding:14px 16px;" id="tablaHistorica"></div>
+    </div>
+
     <!-- UTILIDAD: marcar tramos "por recuperar" como ya recuperados -->
-    <div class="table-wrap" style="margin-bottom:18px;">
+    <div class="table-wrap" style="margin-bottom:18px;" id="wrapMarcarRecuperado">
       <div class="table-header">
         <h3>Marcar horas ya recuperadas</h3>
       </div>
@@ -597,6 +616,8 @@ async function atLoadEntries() {
 // cada mes: se mantienen como cuenta corriente, por eso miran el historial
 // completo y no solo el período actual.
 let resumenPorTrabajador = {}; // { nombre: { local, descontado:{horas,count}, pendiente:{horas,count,entries}, recuperado:{horas,count} } }
+let todasGlobalCache = []; // TODOS los registros de TODOS los períodos (para consultar meses anteriores)
+let periodoConsulta = null; // null = viendo el mes actual en vivo; si tiene valor, se está consultando ese período (solo lectura)
 let sinDefinirGlobal = []; // registros 'debe' aprobados/pagados de CUALQUIER período que aún no tienen decisión
 async function atLoadSaldoGlobal() {
   try {
@@ -613,6 +634,8 @@ async function atLoadSaldoGlobal() {
     } while (offset);
 
     const todas = records.map(r => atRecordToEntry(r));
+    todasGlobalCache = todas;
+    poblarSelectorMesConsulta();
     resumenPorTrabajador = {};
     sinDefinirGlobal = [];
     const ensure = (nombre, local) => {
@@ -1008,17 +1031,20 @@ function saveEntry() {
   if (editingId) {
     // ── Modo edición: el jefe solo llega acá si está pendiente (el botón no
     // aparece para otros estados); la administradora puede editar siempre,
-    // cualquier estado, sin que esto reinicie la aprobación/rechazo/pago. ──
+    // cualquier estado y cualquier período (incluyendo meses anteriores
+    // consultados en modo histórico), sin que esto reinicie la
+    // aprobación/rechazo/pago. ──────────────────────────────────────────────
     const idx = entries.findIndex(e => e.id === editingId);
-    if (idx < 0) {
+    const base = idx >= 0 ? entries[idx] : todasGlobalCache.find(e => e.id === editingId);
+    if (!base) {
       showToast('⚠ No se encontró el registro', true);
       liberarBoton(); cancelEdit(); return;
     }
-    const atId = entries[idx].atId || entries[idx].id;
-    const updated = { ...entries[idx], fecha, local, trabajador, desde:info.requiereHoras?desde:'', hasta:info.requiereHoras?hasta:'',
+    const atId = base.atId || base.id;
+    const updated = { ...base, fecha, local, trabajador, desde:info.requiereHoras?desde:'', hasta:info.requiereHoras?hasta:'',
       horas, valorHora:vh, comentario, observacion, tipoExcepcion, clasificacion };
-    entries[idx] = updated;
-    save(); updateBanner(); renderHistorial(); renderAdmin();
+    if (idx >= 0) { entries[idx] = updated; save(); updateBanner(); renderHistorial(); }
+    renderAdmin();
     atUpdateEntry(atId, updated).then(ok => {
       showToast(ok ? '✓ Registro actualizado' : '⚠ No se pudo sincronizar la edición', !ok);
       if (ok) atLoadSaldoGlobal();
@@ -1070,7 +1096,7 @@ function editAsAdmin(id) {
 }
 
 function editEntry(id) {
-  const e = entries.find(x => x.id === id);
+  const e = entries.find(x => x.id === id) || todasGlobalCache.find(x => x.id === id);
   if (!e) return;
 
   editingId = id;
@@ -1177,6 +1203,50 @@ function renderHistorial() {
 
 // ── ADMIN ─────────────────────────────────────────────────────────────────────
 function renderAdmin() {
+  const modoConsulta = !!periodoConsulta;
+
+  // Mostrar/ocultar bloques según el modo
+  document.getElementById('consultaBanner').style.display = modoConsulta ? 'flex' : 'none';
+  document.getElementById('wrapTablaHistorica').style.display = modoConsulta ? 'block' : 'none';
+  document.getElementById('adminCards').style.display = modoConsulta ? 'none' : 'flex';
+  document.getElementById('wrapDefiniciones').style.display = modoConsulta ? 'none' : 'block';
+  document.getElementById('wrapMarcarRecuperado').style.display = modoConsulta ? 'none' : 'block';
+  document.getElementById('tituloResumenPersona').textContent = modoConsulta
+    ? `Resumen por persona — ${periodLabel(periodoConsulta)}`
+    : 'Resumen por persona';
+
+  if (modoConsulta) {
+    const fL=document.getElementById('aFiltroLocal').value;
+    const fT=document.getElementById('aFiltroTrabajador').value;
+    const fE=document.getElementById('aFiltroEstado').value;
+    const fTipo=document.getElementById('aFiltroTipo')?document.getElementById('aFiltroTipo').value:'';
+    let listHist = todasGlobalCache.filter(e=>getPeriodKey(e.fecha)===periodoConsulta);
+    if (fL) listHist=listHist.filter(e=>e.local===fL);
+    if (fT) listHist=listHist.filter(e=>e.trabajador===fT);
+    if (fE) listHist=listHist.filter(e=>e.estado===fE);
+    if (fTipo) listHist=listHist.filter(e=>(e.tipoExcepcion||'Hora Extra')===fTipo);
+
+    document.getElementById('consultaBannerTxt').textContent =
+      `📅 Modo consulta — ${periodLabel(periodoConsulta)} (solo lectura, sin acciones de aprobación)`;
+
+    const totalHrs = listHist.reduce((s,e)=>s+e.horas,0);
+    const aprobadasOpagadas = listHist.filter(e=>e.estado==='approved'||e.estado==='paid');
+    const hrsPagar = aprobadasOpagadas.filter(e=>valorTipoDe(e)==='pagar').reduce((s,e)=>s+e.horas,0);
+    const hrsDebe  = aprobadasOpagadas.filter(e=>valorTipoDe(e)==='debe').reduce((s,e)=>s+e.horas,0);
+    const montoPagar = aprobadasOpagadas.filter(e=>valorTipoDe(e)==='pagar').reduce((s,e)=>s+(e.horas*(e.valorHora||0)),0);
+    const pendientes = listHist.filter(e=>e.estado==='pending').length;
+    document.getElementById('summaryCards').innerHTML=`
+      <div class="summary-card"><div class="sc-val">${fmtH(totalHrs)}</div><div class="sc-lbl">Total horas</div></div>
+      <div class="summary-card"><div class="sc-val" style="color:var(--red)">${fmtH(hrsPagar)}</div><div class="sc-lbl">Hrs a pagar (aprob.)</div></div>
+      <div class="summary-card"><div class="sc-val" style="color:var(--green)">${fmtH(hrsDebe)}</div><div class="sc-lbl">Hrs a recuperar (aprob.)</div></div>
+      <div class="summary-card"><div class="sc-val" style="color:var(--red)">${fmtCLP(montoPagar)}</div><div class="sc-lbl">Monto a pagar</div></div>
+      <div class="summary-card"><div class="sc-val" style="color:var(--yellow)">${pendientes}</div><div class="sc-lbl">Pendientes</div></div>`;
+
+    renderResumenHistorico(listHist, 'reporteDetallado');
+    renderTablaHistorica(listHist);
+    return;
+  }
+
   const mk=curPeriodKey();
   const fL=document.getElementById('aFiltroLocal').value;
   const fT=document.getElementById('aFiltroTrabajador').value;
@@ -1263,6 +1333,147 @@ function renderAdmin() {
 // "A pagar" es del período filtrado (con recargo legal). "Descontado / Por
 // recuperar / Recuperado" son acumulados históricos: no se resetean el día 26,
 // se arrastran hasta que tú los marcas como recuperados.
+// ── SELECTOR DE MES: consultar períodos anteriores (solo Admin, solo lectura) ──
+function poblarSelectorMesConsulta() {
+  const sel = document.getElementById('filMesConsulta');
+  if (!sel) return;
+  const valorPrevio = sel.value;
+  // Períodos con datos reales, más recientes primero (basado en todasGlobalCache)
+  const claves = new Set(todasGlobalCache.map(e => getPeriodKey(e.fecha)));
+  claves.delete(curPeriodKey());
+  const ordenadas = [...claves].sort().reverse();
+  sel.innerHTML = `<option value="">Mes actual (en vivo)</option>` +
+    ordenadas.map(pk => `<option value="${pk}">${periodLabel(pk)}</option>`).join('');
+  // Mantener la selección si seguía existiendo
+  if ([...sel.options].some(o => o.value === valorPrevio)) sel.value = valorPrevio;
+}
+
+function onMesConsultaChange() {
+  const val = document.getElementById('filMesConsulta').value;
+  periodoConsulta = val || null;
+  renderAdmin();
+}
+
+function volverMesActual() {
+  periodoConsulta = null;
+  document.getElementById('filMesConsulta').value = '';
+  renderAdmin();
+}
+
+// ── RESUMEN HISTÓRICO: igual que el resumen por persona, pero sin ocultar a
+// quien ya no tiene nada pendiente — para poder ver lo que "desapareció" del
+// resumen en vivo al cerrarse su saldo o pasar de período. ─────────────────────
+function renderResumenHistorico(listaPeriodo, targetId) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const porTrabajador = {};
+  const ensure = (n,l) => {
+    if (!porTrabajador[n]) porTrabajador[n] = { local:l, pagar:0, monto:0, descontado:0, pendiente:0, recuperado:0 };
+    return porTrabajador[n];
+  };
+  listaPeriodo.forEach(e => {
+    if (!(e.estado==='approved' || e.estado==='paid')) return;
+    const vt = valorTipoDe(e);
+    if (vt === 'pagar') {
+      const w = ensure(e.trabajador, e.local);
+      w.pagar += e.horas; w.monto += e.horas*(e.valorHora||0);
+    } else if (vt === 'debe') {
+      const w = ensure(e.trabajador, e.local);
+      if (e.saldoDecision === 'descontar') {
+        w.descontado += e.horas;
+      } else if (e.saldoDecision === 'recuperar') {
+        const rec = Math.min(e.horasRecuperadas||0, e.horas);
+        w.recuperado += rec;
+        w.pendiente += Math.max(0, e.horas - rec);
+      }
+    }
+  });
+
+  const nombres = Object.keys(porTrabajador);
+  if (!nombres.length) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Sin registros aprobados o pagados en este período.</p>`;
+    return;
+  }
+
+  const locales = ['Pajaritos','Plaza Oeste'];
+  let html = '';
+  let totPagarH=0, totPagarM=0, totDescH=0, totPendH=0, totRecH=0;
+  locales.forEach(local=>{
+    const nombresLocal = nombres.filter(n => porTrabajador[n].local === local);
+    if (!nombresLocal.length) return;
+    html += `<div class="reporte-section" style="border-radius:8px;padding:7px 10px;margin:14px 0 8px;">${local}</div>`;
+    html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">`;
+    nombresLocal.sort().forEach(nombre=>{
+      const r = porTrabajador[nombre];
+      totPagarH+=r.pagar; totPagarM+=r.monto; totDescH+=r.descontado; totPendH+=r.pendiente; totRecH+=r.recuperado;
+      html += `
+        <div style="background:var(--surface2);border-radius:12px;padding:14px;">
+          <div style="font-weight:700;font-size:14px;margin-bottom:10px;">${shortName(nombre)}</div>
+          <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;">
+              <span style="color:var(--muted);">A pagar (este período)</span>
+              <span style="color:var(--red);font-weight:700;">${r.pagar?fmtH(r.pagar):'—'}</span>
+            </div>
+            ${r.monto?`<div style="display:flex;justify-content:flex-end;margin-top:-5px;"><span style="color:var(--red);font-size:11px;opacity:.85;">${fmtCLP(r.monto)}</span></div>`:''}
+            <div style="display:flex;justify-content:space-between;">
+              <span style="color:var(--muted);">Descontado</span>
+              <span style="font-weight:600;">${r.descontado?fmtH(r.descontado):'—'}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;">
+              <span style="color:var(--muted);">Por recuperar (hoy)</span>
+              <span style="color:var(--green);font-weight:700;">${r.pendiente?fmtH(r.pendiente):'—'}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;">
+              <span style="color:var(--muted);">Recuperado (hoy)</span>
+              <span style="color:var(--accent);font-weight:600;">${r.recuperado?fmtH(r.recuperado):'—'}</span>
+            </div>
+          </div>
+        </div>`;
+    });
+    html += `</div>`;
+  });
+  html += `
+    <div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:12.5px;">
+      <div><span style="color:var(--muted);">Total a pagar </span><b style="color:var(--red)">${fmtH(totPagarH)} · ${fmtCLP(totPagarM)}</b></div>
+      <div><span style="color:var(--muted);">Total descontado </span><b>${fmtH(totDescH)}</b></div>
+      <div><span style="color:var(--muted);">Total por recuperar </span><b style="color:var(--green)">${fmtH(totPendH)}</b></div>
+      <div><span style="color:var(--muted);">Total recuperado </span><b style="color:var(--accent)">${fmtH(totRecH)}</b></div>
+    </div>
+    <div class="neto-note">📅 Estás viendo TODO lo que ocurrió en este período, incluido lo que ya no aparece en el resumen en vivo por estar resuelto. "Por recuperar" y "Recuperado" reflejan el estado ACTUAL de cada tramo (no cómo estaba en ese momento), ya que el saldo se sigue actualizando después.</div>`;
+  el.innerHTML = html;
+}
+
+// ── Tabla de solo lectura con cada registro del período consultado ────────────
+function renderTablaHistorica(listaPeriodo) {
+  const el = document.getElementById('tablaHistorica');
+  if (!el) return;
+  if (!listaPeriodo.length) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px;">Sin registros en este período.</p>`;
+    return;
+  }
+  const ordenados = [...listaPeriodo].sort((a,b)=> a.fecha < b.fecha ? 1 : -1);
+  let html = `<table class="reporte-table"><thead><tr>
+    <th style="text-align:left">Trabajador</th><th style="text-align:left">Local</th>
+    <th style="text-align:left">Tipo</th><th>Fecha</th><th>Horas</th><th style="text-align:left">Categoría</th><th style="text-align:left">Estado</th><th></th>
+  </tr></thead><tbody>`;
+  ordenados.forEach(e=>{
+    const vt = valorTipoDe(e);
+    html += `<tr>
+      <td style="text-align:left;font-family:'DM Sans',sans-serif;font-weight:600;">${shortName(e.trabajador)}</td>
+      <td style="text-align:left;">${e.local}</td>
+      <td style="text-align:left;">${e.tipoExcepcion}</td>
+      <td>${e.fecha}</td>
+      <td>${e.horas?fmtH(e.horas):'—'}</td>
+      <td style="text-align:left;"><span class="badge-valor ${VALOR_BADGE_CLASS[vt]}">${VALOR_LABEL[vt]}</span></td>
+      <td style="text-align:left;">${STATUS_LABEL[e.estado]}${e.saldoDecision?' · '+saldoLabelDe(e):''}</td>
+      <td><button class="btn-mini" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 10px;font-size:11px;white-space:nowrap;" onclick="editAsAdmin('${e.id}')">✎ Editar</button></td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  el.innerHTML = html;
+}
+
+
 function renderResumenPorTrabajador(list, targetId) {
   const el = document.getElementById(targetId || 'reporteDetallado');
   if (!el) return;
